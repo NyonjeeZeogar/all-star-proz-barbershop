@@ -1,11 +1,13 @@
 import React, { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X } from "lucide-react";
+import { Menu, X, LogIn, CalendarCheck, UserPlus } from "lucide-react";
 import { ASSETS, NAV_LINKS } from "@/lib/assets";
+import { useAuth } from "@/lib/AuthContext";
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
+  const { isAuthenticated } = useAuth();
 
   const isActive = (to) => (to === "/" ? pathname === "/" : pathname.startsWith(to));
 
@@ -34,6 +36,32 @@ export default function Navbar() {
           ))}
         </ul>
 
+        <div className="hidden md:flex items-center gap-2">
+          {isAuthenticated ? (
+            <Link
+              to="/bookings"
+              className="inline-flex items-center gap-2 bg-cta text-white rounded-full px-5 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-cta/90 transition-colors"
+            >
+              <CalendarCheck size={15} /> My Bookings
+            </Link>
+          ) : (
+            <>
+              <Link
+                to="/login"
+                className="inline-flex items-center gap-2 border border-ink/15 text-ink rounded-full px-5 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-muted transition-colors"
+              >
+                <LogIn size={15} /> Sign in
+              </Link>
+              <Link
+                to="/register"
+                className="inline-flex items-center gap-2 bg-cta text-white rounded-full px-5 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-cta/90 transition-colors"
+              >
+                <UserPlus size={15} /> Sign up
+              </Link>
+            </>
+          )}
+        </div>
+
         <button
           className="md:hidden text-ink p-2 -mr-2"
           onClick={() => setOpen((v) => !v)}
@@ -59,6 +87,34 @@ export default function Navbar() {
                 </Link>
               </li>
             ))}
+            <li className="pt-2 border-t border-ink/5 mt-2">
+              {isAuthenticated ? (
+                <Link
+                  to="/bookings"
+                  onClick={() => setOpen(false)}
+                  className="block py-3 font-heading text-sm font-bold tracking-wide text-cta"
+                >
+                  My Bookings
+                </Link>
+              ) : (
+                <div className="flex gap-4">
+                  <Link
+                    to="/login"
+                    onClick={() => setOpen(false)}
+                    className="block py-3 font-heading text-sm font-bold tracking-wide text-cta"
+                  >
+                    Sign in
+                  </Link>
+                  <Link
+                    to="/register"
+                    onClick={() => setOpen(false)}
+                    className="block py-3 font-heading text-sm font-bold tracking-wide text-cta"
+                  >
+                    Sign up
+                  </Link>
+                </div>
+              )}
+            </li>
           </ul>
         </div>
       )}
