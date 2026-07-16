@@ -34,24 +34,15 @@ const AuthenticatedApp = () => {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
-      <Route
-        path="/forgot-password"
-        element={<ForgotPassword />}
-      />
-      <Route
-        path="/reset-password"
-        element={<ResetPassword />}
-      />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
 
       <Route element={<SiteLayout />}>
         <Route path="/" element={<Home />} />
         <Route path="/teams" element={<Teams />} />
         <Route path="/teams/:slug" element={<TeamMember />} />
         <Route path="/locations" element={<Locations />} />
-        <Route
-          path="/locations/new-hope"
-          element={<LocationDetail />}
-        />
+        <Route path="/locations/new-hope" element={<LocationDetail />} />
         <Route path="/services" element={<Services />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/terms" element={<Terms />} />
@@ -60,16 +51,11 @@ const AuthenticatedApp = () => {
         <Route
           element={
             <ProtectedRoute
-              unauthenticatedElement={
-                <Navigate to="/login" replace />
-              }
+              unauthenticatedElement={<Navigate to="/login" replace />}
             />
           }
         >
-          <Route
-            path="/bookings"
-            element={<MyBookings />}
-          />
+          <Route path="/bookings" element={<MyBookings />} />
         </Route>
       </Route>
 
@@ -82,7 +68,12 @@ function App() {
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>
-        <Router>
+        <Router
+          future={{
+            v7_startTransition: true,
+            v7_relativeSplatPath: true,
+          }}
+        >
           <ScrollToTop />
           <AuthenticatedApp />
         </Router>
