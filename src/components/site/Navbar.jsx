@@ -1,13 +1,13 @@
 import React, { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X, LogIn, CalendarCheck, UserPlus } from "lucide-react";
+import { Menu, X, LogIn, CalendarCheck, UserPlus, LogOut } from "lucide-react";
 import { ASSETS, NAV_LINKS } from "@/lib/assets";
 import { useAuth } from "@/lib/AuthContext";
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
 
   const isActive = (to) => (to === "/" ? pathname === "/" : pathname.startsWith(to));
 
@@ -38,12 +38,20 @@ export default function Navbar() {
 
         <div className="hidden md:flex items-center gap-2">
           {isAuthenticated ? (
-            <Link
-              to="/bookings"
-              className="inline-flex items-center gap-2 bg-cta text-white rounded-full px-5 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-cta/90 transition-colors"
-            >
-              <CalendarCheck size={15} /> My Bookings
-            </Link>
+            <>
+              <Link
+                to="/bookings"
+                className="inline-flex items-center gap-2 bg-cta text-white rounded-full px-5 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-cta/90 transition-colors"
+              >
+                <CalendarCheck size={15} /> My Bookings
+              </Link>
+              <button
+                onClick={logout}
+                className="inline-flex items-center gap-2 border border-ink/15 text-ink rounded-full px-5 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+              >
+                <LogOut size={15} /> Sign out
+              </button>
+            </>
           ) : (
             <>
               <Link
@@ -89,13 +97,24 @@ export default function Navbar() {
             ))}
             <li className="pt-2 border-t border-ink/5 mt-2">
               {isAuthenticated ? (
-                <Link
-                  to="/bookings"
-                  onClick={() => setOpen(false)}
-                  className="block py-3 font-heading text-sm font-bold tracking-wide text-cta"
-                >
-                  My Bookings
-                </Link>
+                <div className="flex items-center justify-between gap-4">
+                  <Link
+                    to="/bookings"
+                    onClick={() => setOpen(false)}
+                    className="block py-3 font-heading text-sm font-bold tracking-wide text-cta"
+                  >
+                    My Bookings
+                  </Link>
+                  <button
+                    onClick={() => {
+                      setOpen(false);
+                      logout();
+                    }}
+                    className="inline-flex items-center gap-2 py-3 font-heading text-sm font-bold tracking-wide text-ink/70 hover:text-red-600"
+                  >
+                    <LogOut size={16} /> Sign out
+                  </button>
+                </div>
               ) : (
                 <div className="flex gap-4">
                   <Link
