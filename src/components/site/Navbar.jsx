@@ -6,10 +6,26 @@ import { useAuth } from "@/lib/AuthContext";
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const { pathname } = useLocation();
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, signOut } = useAuth();
 
   const isActive = (to) => (to === "/" ? pathname === "/" : pathname.startsWith(to));
+
+  const handleSignOut = async () => {
+    if (isSigningOut) return;
+
+    setIsSigningOut(true);
+
+    try {
+      await signOut();
+      setOpen(false);
+    } catch (error) {
+      console.error("Unable to sign out:", error);
+    } finally {
+      setIsSigningOut(false);
+    }
+  };
 
   return (
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-black/5">
@@ -46,10 +62,12 @@ export default function Navbar() {
                 <CalendarCheck size={15} /> My Bookings
               </Link>
               <button
-                onClick={logout}
-                className="inline-flex items-center gap-2 border border-ink/15 text-ink rounded-full px-5 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                type="button"
+                onClick={handleSignOut}
+                disabled={isSigningOut}
+                className="inline-flex items-center gap-2 border border-ink/15 text-ink rounded-full px-5 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <LogOut size={15} /> Sign out
+                <LogOut size={15} /> {isSigningOut ? "Signing out..." : "Sign out"}
               </button>
             </>
           ) : (
@@ -106,13 +124,12 @@ export default function Navbar() {
                     My Bookings
                   </Link>
                   <button
-                    onClick={() => {
-                      setOpen(false);
-                      logout();
-                    }}
-                    className="inline-flex items-center gap-2 py-3 font-heading text-sm font-bold tracking-wide text-ink/70 hover:text-red-600"
+                    type="button"
+                    onClick={handleSignOut}
+                    disabled={isSigningOut}
+                    className="inline-flex items-center gap-2 py-3 font-heading text-sm font-bold tracking-wide text-ink/70 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <LogOut size={16} /> Sign out
+                    <LogOut size={16} /> {isSigningOut ? "Signing out..." : "Sign out"}
                   </button>
                 </div>
               ) : (
