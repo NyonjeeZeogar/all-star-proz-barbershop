@@ -80,6 +80,16 @@ export const FEED = [
   "https://images.unsplash.com/photo-1493863641943-9b68992a8d07?auto=format&fit=crop&w=600&q=80",
 ];
 
+export const LOCATIONS = [
+  { name: "New Hope Shop", address: SHOP.address, available: true },
+  { name: "More locations coming soon", available: false },
+];
+
+export const BARBERS = [
+  { name: "Any barber", role: "" },
+  ...TEAM.map((m) => ({ name: m.name, role: m.role, slug: m.slug })),
+];
+
 export const NAV_LINKS = [
   { label: "Home", to: "/" },
   { label: "Teams", to: "/teams" },
