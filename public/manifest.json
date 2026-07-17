@@ -1,0 +1,9 @@
+{
+  "name": "All Stylez Pro",
+  "short_name": "All Stylez Pro",
+  "description": "Book appointments with All Stylez Pro Barbershop",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1554f6"
+}
