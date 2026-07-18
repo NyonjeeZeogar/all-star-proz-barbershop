@@ -90,9 +90,9 @@ export default function Footer() {
 
       <div className="border-t border-white/10">
         <div className="max-w-7xl mx-auto px-5 sm:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="text-xs text-white/50 tracking-wide">© 2023, ALL STYLEZ PRO.</p>
+          <p className="text-xs text-white/50 tracking-wide">© 2026, ALL STYLEZ PRO.</p>
           <span className="text-xs text-white/40 font-heading font-bold tracking-wide border border-white/15 rounded-full px-3 py-1">
-            Made in Webflow
+            Made by NDMA
           </span>
         </div>
       </div>
