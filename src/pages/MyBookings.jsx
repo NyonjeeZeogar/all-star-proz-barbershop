@@ -10,6 +10,7 @@ import {
   Scissors,
   X,
 } from "lucide-react";
+
 import { useAuth } from "@/lib/AuthContext";
 import { ASSETS } from "@/lib/assets";
 import {
@@ -18,6 +19,11 @@ import {
 } from "@/services/appointments";
 
 const STATUS = {
+  pending_payment: {
+    label: "Awaiting payment",
+    className: "bg-orange-100 text-orange-700",
+    Icon: Hourglass,
+  },
   pending: {
     label: "Pending",
     className: "bg-amber-100 text-amber-700",
@@ -28,9 +34,24 @@ const STATUS = {
     className: "bg-green-100 text-green-700",
     Icon: CheckCircle2,
   },
+  completed: {
+    label: "Completed",
+    className: "bg-blue-100 text-blue-700",
+    Icon: CheckCircle2,
+  },
   cancelled: {
     label: "Cancelled",
     className: "bg-red-100 text-red-700",
+    Icon: X,
+  },
+  no_show: {
+    label: "No show",
+    className: "bg-red-100 text-red-700",
+    Icon: X,
+  },
+  payment_expired: {
+    label: "Payment expired",
+    className: "bg-slate-100 text-slate-600",
     Icon: X,
   },
 };
@@ -56,8 +77,6 @@ export default function MyBookings() {
 
       const data = await getMyAppointments();
 
-      console.log("Loaded appointments:", data);
-
       setBookings(data ?? []);
     } catch (error) {
       console.error("Unable to load appointments:", error);
@@ -77,7 +96,7 @@ export default function MyBookings() {
     loadBookings();
   }, [loadBookings]);
 
-  const handleCancelBooking = async (appointmentId) => {
+  async function handleCancelBooking(appointmentId) {
     const shouldCancel = window.confirm(
       "Are you sure you want to cancel this appointment?"
     );
@@ -117,7 +136,7 @@ export default function MyBookings() {
     } finally {
       setCancellingId(null);
     }
-  };
+  }
 
   const customerName =
     user?.user_metadata?.full_name ||
@@ -222,25 +241,17 @@ export default function MyBookings() {
 
                 const StatusIcon = status.Icon;
 
-                /*
-                 * Supabase returns the joined service as
-                 * an object:
-                 *
-                 * service: {
-                 *   id,
-                 *   name,
-                 *   description,
-                 *   price,
-                 *   duration_minutes
-                 * }
-                 */
                 const serviceName =
-                  booking.service?.name ||
+                  booking.service_details?.name ||
                   booking.service_name ||
                   (typeof booking.service === "string"
                     ? booking.service
                     : null) ||
                   "Appointment";
+
+                const servicePrice =
+                  booking.service_price ??
+                  booking.service_details?.price;
 
                 const appointmentDate =
                   booking.appointment_date ||
@@ -255,18 +266,6 @@ export default function MyBookings() {
                   booking.customer_name ||
                   booking.name;
 
-                /*
-                 * Supabase returns the joined barber as
-                 * an object:
-                 *
-                 * barber: {
-                 *   id,
-                 *   full_name,
-                 *   email,
-                 *   phone,
-                 *   role
-                 * }
-                 */
                 const barberName =
                   booking.barber?.full_name ||
                   booking.barber_name ||
@@ -274,16 +273,24 @@ export default function MyBookings() {
                     ? booking.barber
                     : null);
 
-                /*
-                 * Supports a future joined location object
-                 * as well as the current string fields.
-                 */
-                const locationName =
-                  booking.location?.name ||
-                  booking.location_name ||
-                  (typeof booking.location === "string"
-                    ? booking.location
-                    : null);
+                const depositAmount =
+                  booking.deposit_amount;
+
+                const amountPaid =
+                  booking.amount_paid;
+
+                const remainingBalance =
+                  booking.remaining_balance;
+
+                const paymentStatus =
+                  booking.payment_status;
+
+                const canCancel = ![
+                  "cancelled",
+                  "completed",
+                  "no_show",
+                  "payment_expired",
+                ].includes(normalizedStatus);
 
                 return (
                   <article
@@ -315,7 +322,6 @@ export default function MyBookings() {
                         {appointmentDate && (
                           <span className="inline-flex items-center gap-1">
                             <CalendarDays size={14} />
-
                             {formatAppointmentDate(
                               appointmentDate
                             )}
@@ -325,7 +331,6 @@ export default function MyBookings() {
                         {appointmentTime && (
                           <span className="inline-flex items-center gap-1">
                             <Clock size={14} />
-
                             {formatAppointmentTime(
                               appointmentTime
                             )}
@@ -333,9 +338,7 @@ export default function MyBookings() {
                         )}
 
                         {bookingCustomerName && (
-                          <span>
-                            {bookingCustomerName}
-                          </span>
+                          <span>{bookingCustomerName}</span>
                         )}
 
                         {barberName && (
@@ -343,16 +346,69 @@ export default function MyBookings() {
                             Barber: {barberName}
                           </span>
                         )}
-
-                        {locationName && (
-                          <span>
-                            Location: {locationName}
-                          </span>
-                        )}
                       </div>
+
+                      {(servicePrice != null ||
+                        depositAmount != null ||
+                        amountPaid != null ||
+                        remainingBalance != null ||
+                        paymentStatus) && (
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                          {servicePrice != null && (
+                            <span className="rounded-full bg-muted px-3 py-1 font-medium text-ink/70">
+                              Service:{" "}
+                              {formatCurrency(
+                                servicePrice,
+                                booking.currency
+                              )}
+                            </span>
+                          )}
+
+                          {depositAmount != null && (
+                            <span className="rounded-full bg-amber-50 px-3 py-1 font-medium text-amber-700">
+                              Deposit:{" "}
+                              {formatCurrency(
+                                depositAmount,
+                                booking.currency
+                              )}
+                            </span>
+                          )}
+
+                          {amountPaid != null &&
+                            Number(amountPaid) > 0 && (
+                              <span className="rounded-full bg-green-50 px-3 py-1 font-medium text-green-700">
+                                Paid:{" "}
+                                {formatCurrency(
+                                  amountPaid,
+                                  booking.currency
+                                )}
+                              </span>
+                            )}
+
+                          {remainingBalance != null &&
+                            Number(remainingBalance) > 0 && (
+                              <span className="rounded-full bg-blue-50 px-3 py-1 font-medium text-blue-700">
+                                Balance:{" "}
+                                {formatCurrency(
+                                  remainingBalance,
+                                  booking.currency
+                                )}
+                              </span>
+                            )}
+
+                          {paymentStatus && (
+                            <span className="rounded-full bg-slate-100 px-3 py-1 font-medium capitalize text-slate-600">
+                              Payment:{" "}
+                              {formatPaymentStatus(
+                                paymentStatus
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
 
-                    {normalizedStatus !== "cancelled" && (
+                    {canCancel && (
                       <button
                         type="button"
                         onClick={() =>
@@ -425,9 +481,8 @@ function formatAppointmentTime(timeValue) {
   const normalizedTime =
     String(timeValue).slice(0, 5);
 
-  const [hours, minutes] = normalizedTime
-    .split(":")
-    .map(Number);
+  const [hours, minutes] =
+    normalizedTime.split(":").map(Number);
 
   if (
     Number.isNaN(hours) ||
@@ -438,15 +493,32 @@ function formatAppointmentTime(timeValue) {
 
   const date = new Date();
 
-  date.setHours(
-    hours,
-    minutes,
-    0,
-    0
-  );
+  date.setHours(hours, minutes, 0, 0);
 
   return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatCurrency(
+  value,
+  currency = "USD"
+) {
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) {
+    return "";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency || "USD",
+  }).format(amount);
+}
+
+function formatPaymentStatus(status) {
+  return String(status)
+    .replaceAll("_", " ")
+    .trim();
 }
