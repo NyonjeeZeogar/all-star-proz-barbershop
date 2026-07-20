@@ -1,61 +1,95 @@
 import React, { useState } from "react";
 import {
+  CalendarCheck,
+  LogIn,
+  LogOut,
+  Menu,
+  UserPlus,
+  X,
+} from "lucide-react";
+import {
   Link,
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import {
-  Menu,
-  X,
-  LogIn,
-  CalendarCheck,
-  UserPlus,
-  LogOut,
-  Scissors,
-} from "lucide-react";
 
-import { ASSETS, NAV_LINKS } from "@/lib/assets";
 import { useAuth } from "@/lib/AuthContext";
+import { ASSETS } from "@/lib/assets";
+
+const NAV_LINKS = [
+  {
+    label: "Home",
+    to: "/",
+  },
+  {
+    label: "Teams",
+    to: "/teams",
+  },
+  {
+    label: "Locations",
+    to: "/locations",
+  },
+  {
+    label: "Services",
+    to: "/services",
+  },
+  {
+    label: "Contact",
+    to: "/contact",
+  },
+];
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
-  const { pathname } = useLocation();
+
+  const location = useLocation();
   const navigate = useNavigate();
 
   const {
+    profile,
+    isAdmin,
+    isBarber,
     isAuthenticated,
     signOut,
-    isBarber,
   } = useAuth();
 
-  const isActive = (to) =>
-    to === "/"
-      ? pathname === "/"
-      : pathname.startsWith(to);
+  const closeMenu = () => {
+    setOpen(false);
+  };
 
-  const handleSignOut = async () => {
+  const isActive = (path) => {
+    if (path === "/") {
+      return location.pathname === "/";
+    }
+
+    return (
+      location.pathname === path ||
+      location.pathname.startsWith(`${path}/`)
+    );
+  };
+
+  const handleLogout = async () => {
     try {
-      setOpen(false);
-
       await signOut();
-
+      closeMenu();
       navigate("/", {
         replace: true,
       });
     } catch (error) {
-      console.error(
-        "Unable to sign out:",
-        error
-      );
+      console.error("Unable to sign out:", error);
     }
   };
 
+  const showBarberPortal =
+    Boolean(isBarber) && !Boolean(isAdmin);
+
   return (
-    <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-black/5">
-      <nav className="max-w-7xl mx-auto px-5 sm:px-8 h-20 flex items-center justify-between">
+    <header className="sticky top-0 z-50 border-b border-black/5 bg-white/90 backdrop-blur-md">
+      <nav className="mx-auto flex h-20 max-w-7xl items-center justify-between px-5 sm:px-8">
         <Link
           to="/"
-          className="flex items-center gap-2 shrink-0"
+          className="flex shrink-0 items-center gap-2"
+          onClick={closeMenu}
         >
           <img
             src={ASSETS.logoColor}
@@ -63,12 +97,12 @@ export default function Navbar() {
             className="h-9 w-9 object-contain"
           />
 
-          <span className="font-heading font-extrabold tracking-tight text-ink text-sm hidden sm:block">
+          <span className="hidden font-heading text-sm font-extrabold tracking-tight text-ink sm:block">
             ALL STYLEZ PRO
           </span>
         </Link>
 
-        <ul className="hidden md:flex items-center gap-9">
+        <ul className="hidden items-center gap-9 md:flex">
           {NAV_LINKS.map((link) => (
             <li key={link.to}>
               <Link
@@ -83,23 +117,55 @@ export default function Navbar() {
               </Link>
             </li>
           ))}
+
+          {showBarberPortal && (
+            <li>
+              <Link
+                to="/portal"
+                className={`font-heading text-[13px] font-bold tracking-wide transition-colors hover:text-cta ${
+                  isActive("/portal")
+                    ? "text-cta"
+                    : "text-ink"
+                }`}
+              >
+                Portal
+              </Link>
+            </li>
+          )}
+
+          {isAdmin && (
+            <li>
+              <Link
+                to="/admin"
+                className={`font-heading text-[13px] font-bold tracking-wide transition-colors hover:text-cta ${
+                  isActive("/admin")
+                    ? "text-cta"
+                    : "text-ink"
+                }`}
+              >
+                Admin
+              </Link>
+            </li>
+          )}
         </ul>
 
-        <div className="hidden md:flex items-center gap-2">
+        <div className="hidden items-center gap-2 md:flex">
           {isAuthenticated ? (
             <>
-              {isBarber ? (
-                <Link
-                  to="/barber-portal"
-                  className="inline-flex items-center gap-2 bg-cta text-white rounded-full px-5 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-cta/90 transition-colors"
-                >
-                  <Scissors size={15} />
-                  Barber Portal
-                </Link>
-              ) : (
+              <div className="mr-2 hidden text-right lg:block">
+                <p className="text-xs font-semibold text-ink">
+                  {profile?.full_name || "Account"}
+                </p>
+
+                <p className="text-[11px] capitalize text-ink/50">
+                  {profile?.role || "customer"}
+                </p>
+              </div>
+
+              {!isAdmin && (
                 <Link
                   to="/bookings"
-                  className="inline-flex items-center gap-2 bg-cta text-white rounded-full px-5 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-cta/90 transition-colors"
+                  className="inline-flex items-center gap-2 rounded-full bg-cta px-5 py-2.5 font-heading text-xs font-bold tracking-wide text-white transition-colors hover:bg-cta/90"
                 >
                   <CalendarCheck size={15} />
                   My Bookings
@@ -108,8 +174,8 @@ export default function Navbar() {
 
               <button
                 type="button"
-                onClick={handleSignOut}
-                className="inline-flex items-center gap-2 border border-ink/15 text-ink rounded-full px-5 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                onClick={handleLogout}
+                className="inline-flex items-center gap-2 rounded-full border border-ink/15 px-5 py-2.5 font-heading text-xs font-bold tracking-wide text-ink transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
               >
                 <LogOut size={15} />
                 Sign out
@@ -119,7 +185,7 @@ export default function Navbar() {
             <>
               <Link
                 to="/login"
-                className="inline-flex items-center gap-2 border border-ink/15 text-ink rounded-full px-5 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-muted transition-colors"
+                className="inline-flex items-center gap-2 rounded-full border border-ink/15 px-5 py-2.5 font-heading text-xs font-bold tracking-wide text-ink transition-colors hover:bg-muted"
               >
                 <LogIn size={15} />
                 Sign in
@@ -127,7 +193,7 @@ export default function Navbar() {
 
               <Link
                 to="/register"
-                className="inline-flex items-center gap-2 bg-cta text-white rounded-full px-5 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-cta/90 transition-colors"
+                className="inline-flex items-center gap-2 rounded-full bg-cta px-5 py-2.5 font-heading text-xs font-bold tracking-wide text-white transition-colors hover:bg-cta/90"
               >
                 <UserPlus size={15} />
                 Sign up
@@ -138,30 +204,25 @@ export default function Navbar() {
 
         <button
           type="button"
-          className="md:hidden text-ink p-2 -mr-2"
-          onClick={() =>
-            setOpen((value) => !value)
-          }
-          aria-label="Toggle menu"
+          className="-mr-2 p-2 text-ink md:hidden"
+          onClick={() => {
+            setOpen((current) => !current);
+          }}
+          aria-label={open ? "Close menu" : "Open menu"}
+          aria-expanded={open}
         >
-          {open ? (
-            <X size={22} />
-          ) : (
-            <Menu size={22} />
-          )}
+          {open ? <X size={22} /> : <Menu size={22} />}
         </button>
       </nav>
 
       {open && (
-        <div className="md:hidden border-t border-black/5 bg-white">
-          <ul className="px-5 py-4 space-y-1">
+        <div className="border-t border-black/5 bg-white md:hidden">
+          <ul className="space-y-1 px-5 py-4">
             {NAV_LINKS.map((link) => (
               <li key={link.to}>
                 <Link
                   to={link.to}
-                  onClick={() =>
-                    setOpen(false)
-                  }
+                  onClick={closeMenu}
                   className={`block py-3 font-heading text-sm font-bold tracking-wide ${
                     isActive(link.to)
                       ? "text-cta"
@@ -173,51 +234,77 @@ export default function Navbar() {
               </li>
             ))}
 
-            <li className="pt-2 border-t border-ink/5 mt-2">
-              {isAuthenticated ? (
-                <div className="flex flex-col gap-1">
-                  {isBarber ? (
-                    <Link
-                      to="/barber-portal"
-                      onClick={() =>
-                        setOpen(false)
-                      }
-                      className="inline-flex items-center gap-2 py-3 font-heading text-sm font-bold tracking-wide text-cta"
-                    >
-                      <Scissors size={16} />
-                      Barber Portal
-                    </Link>
-                  ) : (
-                    <Link
-                      to="/bookings"
-                      onClick={() =>
-                        setOpen(false)
-                      }
-                      className="inline-flex items-center gap-2 py-3 font-heading text-sm font-bold tracking-wide text-cta"
-                    >
-                      <CalendarCheck
-                        size={16}
-                      />
-                      My Bookings
-                    </Link>
-                  )}
+            {showBarberPortal && (
+              <li>
+                <Link
+                  to="/portal"
+                  onClick={closeMenu}
+                  className={`block py-3 font-heading text-sm font-bold tracking-wide ${
+                    isActive("/portal")
+                      ? "text-cta"
+                      : "text-ink"
+                  }`}
+                >
+                  Portal
+                </Link>
+              </li>
+            )}
 
-                  <button
-                    type="button"
-                    onClick={handleSignOut}
-                    className="inline-flex items-center gap-2 py-3 font-heading text-sm font-bold tracking-wide text-ink/70 hover:text-red-600 text-left"
-                  >
-                    <LogOut size={16} />
-                    Sign out
-                  </button>
+            {isAdmin && (
+              <li>
+                <Link
+                  to="/admin"
+                  onClick={closeMenu}
+                  className={`block py-3 font-heading text-sm font-bold tracking-wide ${
+                    isActive("/admin")
+                      ? "text-cta"
+                      : "text-ink"
+                  }`}
+                >
+                  Admin
+                </Link>
+              </li>
+            )}
+
+            <li className="mt-2 border-t border-ink/5 pt-2">
+              {isAuthenticated ? (
+                <div>
+                  <div className="py-3">
+                    <p className="text-sm font-semibold text-ink">
+                      {profile?.full_name || "Account"}
+                    </p>
+
+                    <p className="text-xs capitalize text-ink/50">
+                      {profile?.role || "customer"}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-4">
+                    {!isAdmin && (
+                      <Link
+                        to="/bookings"
+                        onClick={closeMenu}
+                        className="block py-3 font-heading text-sm font-bold tracking-wide text-cta"
+                      >
+                        My Bookings
+                      </Link>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="inline-flex items-center gap-2 py-3 font-heading text-sm font-bold tracking-wide text-ink/70 hover:text-red-600"
+                    >
+                      <LogOut size={16} />
+                      Sign out
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="flex gap-4">
                   <Link
                     to="/login"
-                    onClick={() =>
-                      setOpen(false)
-                    }
+                    onClick={closeMenu}
                     className="block py-3 font-heading text-sm font-bold tracking-wide text-cta"
                   >
                     Sign in
@@ -225,9 +312,7 @@ export default function Navbar() {
 
                   <Link
                     to="/register"
-                    onClick={() =>
-                      setOpen(false)
-                    }
+                    onClick={closeMenu}
                     className="block py-3 font-heading text-sm font-bold tracking-wide text-cta"
                   >
                     Sign up
