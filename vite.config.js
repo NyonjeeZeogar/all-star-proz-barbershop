@@ -4,10 +4,18 @@ import path from "path";
 
 export default defineConfig({
   plugins: [react()],
-  base: "/all-star-proz-barbershop/",
+
+  // Use the domain root during local development.
+  base: "/",
+
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+
+  server: {
+    host: "localhost",
+    port: 5173,
   },
 });

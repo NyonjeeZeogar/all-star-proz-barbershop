@@ -1,56 +1,88 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Facebook, Instagram, MapPin } from "lucide-react";
+import {
+  Facebook,
+  Instagram,
+  MapPin,
+} from "lucide-react";
+
 import { TEAM } from "@/lib/assets";
 
-export default function TeamCard({ member, showShopButton = true }) {
-  const m = typeof member === "string" ? TEAM.find((t) => t.slug === member) : member;
+export default function TeamCard({
+  member,
+  showShopButton = true,
+}) {
+  const teamMember =
+    typeof member === "string"
+      ? TEAM.find((item) => item.slug === member)
+      : member;
+
+  if (!teamMember) {
+    return null;
+  }
+
   return (
-    <div className="bg-white rounded-2xl overflow-hidden border border-ink/10 shadow-sm flex flex-col group">
-      <Link to={`/teams/${m.slug}`} className="relative aspect-[4/5] overflow-hidden bg-muted block">
-        <img
-          src={m.photo}
-          alt={m.name}
-          loading="lazy"
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-        />
-        <div className="absolute top-3 right-3 flex gap-2">
+    <article className="group flex flex-col overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm">
+      <div className="relative aspect-[4/5] overflow-hidden bg-muted">
+        <Link
+          to={`/teams/${teamMember.slug}`}
+          className="block h-full w-full"
+          aria-label={`View ${teamMember.name}'s profile`}
+        >
+          <img
+            src={teamMember.photo}
+            alt={teamMember.name}
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+          />
+        </Link>
+
+        <div className="absolute right-3 top-3 flex gap-2">
           <a
             href="https://facebook.com"
             target="_blank"
             rel="noreferrer"
-            className="w-8 h-8 grid place-items-center bg-white/90 rounded-full text-ink hover:bg-cta hover:text-white transition-colors"
+            aria-label={`${teamMember.name} on Facebook`}
+            className="grid h-8 w-8 place-items-center rounded-full bg-white/90 text-ink transition-colors hover:bg-cta hover:text-white"
           >
             <Facebook size={14} />
           </a>
+
           <a
             href="https://instagram.com"
             target="_blank"
             rel="noreferrer"
-            className="w-8 h-8 grid place-items-center bg-white/90 rounded-full text-ink hover:bg-cta hover:text-white transition-colors"
+            aria-label={`${teamMember.name} on Instagram`}
+            className="grid h-8 w-8 place-items-center rounded-full bg-white/90 text-ink transition-colors hover:bg-cta hover:text-white"
           >
             <Instagram size={14} />
           </a>
         </div>
-      </Link>
-      <div className="p-5 flex flex-col gap-3 flex-1">
+      </div>
+
+      <div className="flex flex-1 flex-col gap-3 p-5">
         <div>
-          <Link to={`/teams/${m.slug}`}>
-            <h3 className="font-heading text-lg font-extrabold tracking-tight text-ink hover:text-cta transition-colors">
-              {m.name}
+          <Link to={`/teams/${teamMember.slug}`}>
+            <h3 className="font-heading text-lg font-extrabold tracking-tight text-ink transition-colors hover:text-cta">
+              {teamMember.name}
             </h3>
           </Link>
-          <p className="text-sm text-ink/60">{m.role}</p>
+
+          <p className="text-sm text-ink/60">
+            {teamMember.role}
+          </p>
         </div>
+
         {showShopButton && (
           <Link
             to="/locations/new-hope"
-            className="mt-auto inline-flex items-center justify-center gap-2 bg-cyanAccent text-ink rounded-full px-4 py-2.5 font-heading text-xs font-bold tracking-wide hover:bg-cyanAccent/80 transition-colors"
+            className="mt-auto inline-flex items-center justify-center gap-2 rounded-full bg-cyanAccent px-4 py-2.5 font-heading text-xs font-bold tracking-wide text-ink transition-colors hover:bg-cyanAccent/80"
           >
-            <MapPin size={13} /> {m.shop}
+            <MapPin size={13} />
+            {teamMember.shop}
           </Link>
         )}
       </div>
-    </div>
+    </article>
   );
 }
