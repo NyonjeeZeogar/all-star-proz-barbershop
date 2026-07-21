@@ -5,8 +5,7 @@ import path from "path";
 export default defineConfig({
   plugins: [react()],
 
-  // Use the domain root during local development.
-  base: "/",
+  base: "/all-star-proz-barbershop/",
 
   resolve: {
     alias: {
