@@ -317,11 +317,6 @@ Deno.serve(async (request) => {
     );
 
     authorizationUrl.searchParams.set(
-      "session",
-      "false"
-    );
-
-    authorizationUrl.searchParams.set(
       "state",
       state
     );
