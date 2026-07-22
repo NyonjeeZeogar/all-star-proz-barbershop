@@ -1067,6 +1067,97 @@ export async function deleteAppointment(
   }
 }
 
+
+/**
+ * Returns dates that still have at least one valid appointment slot.
+ *
+ * Requires the public.get_available_appointment_dates RPC from the
+ * accompanying Supabase migration.
+ */
+export async function getAvailableAppointmentDates({
+  barberId,
+  serviceId,
+  startDate,
+  days = 60,
+}) {
+  if (!barberId || !serviceId || !startDate) {
+    return [];
+  }
+
+  const { data, error } = await supabase.rpc(
+    "get_available_appointment_dates",
+    {
+      p_barber_id: barberId,
+      p_service_id: serviceId,
+      p_start_date: startDate,
+      p_days: days,
+    }
+  );
+
+  if (error) {
+    logSupabaseError(
+      "Unable to load available appointment dates",
+      error
+    );
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map((row) =>
+    typeof row === "string"
+      ? row
+      : row.appointment_date
+  );
+}
+
+/**
+ * Returns only currently bookable times for a barber, service, and date.
+ *
+ * The database function removes:
+ * - times outside weekly working hours
+ * - times overlapping appointments
+ * - times overlapping barber_time_blocks
+ * - past times
+ * - times where the service would finish after closing
+ */
+export async function getAvailableAppointmentSlots({
+  barberId,
+  serviceId,
+  appointmentDate,
+}) {
+  if (!barberId || !serviceId || !appointmentDate) {
+    return [];
+  }
+
+  const { data, error } = await supabase.rpc(
+    "get_available_appointment_slots",
+    {
+      p_barber_id: barberId,
+      p_service_id: serviceId,
+      p_appointment_date: appointmentDate,
+    }
+  );
+
+  if (error) {
+    logSupabaseError(
+      "Unable to load available appointment slots",
+      error
+    );
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map((row) => {
+    if (typeof row === "string") {
+      return row;
+    }
+
+    return (
+      row.slot_time ||
+      row.start_time ||
+      row.available_time
+    );
+  }).filter(Boolean);
+}
+
 /**
  * Logs complete Supabase errors in a readable format.
  */

@@ -12,6 +12,7 @@ import {
   Loader2,
   Scissors,
   Settings,
+  Ban,
 } from "lucide-react";
 
 import { useAuth } from "@/lib/AuthContext";
@@ -22,6 +23,7 @@ import AppointmentHistory from "@/components/portal/AppointmentHistory";
 import WeeklySchedule from "@/components/portal/WeeklySchedule";
 import AvailabilitySettings from "@/components/portal/AvailabilitySettings";
 import MyServices from "@/components/portal/MyServices";
+import BlockedTimes from "@/components/portal/BlockedTimes";
 
 import {
   cancelPortalAppointment,
@@ -51,6 +53,11 @@ const TABS = [
     id: "services",
     label: "My Services",
     Icon: Scissors,
+  },
+  {
+    id: "blocked-times",
+    label: "Blocked Times",
+    Icon: Ban,
   },
   {
     id: "history",
@@ -425,6 +432,8 @@ export default function BarberPortal() {
             />
           ) : tab === "services" ? (
             <MyServices />
+          ) : tab === "blocked-times" ? (
+            <BlockedTimes />
           ) : (
             <AppointmentHistory
               items={historyItems}

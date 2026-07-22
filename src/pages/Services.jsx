@@ -20,24 +20,15 @@ import {
 
 import {
   createAppointment,
+  getAvailableAppointmentSlots,
   getBarbers,
   getBarberServices,
 } from "@/services/appointments";
 import { useAuth } from "@/lib/AuthContext";
+import { supabase } from "@/lib/supabaseClient";
 import { LOCATIONS } from "@/lib/assets";
 import SectionHeading from "@/components/site/SectionHeading";
 
-const TIMES = [
-  "9:00 AM",
-  "10:00 AM",
-  "11:00 AM",
-  "12:00 PM",
-  "1:00 PM",
-  "2:00 PM",
-  "3:00 PM",
-  "4:00 PM",
-  "5:00 PM",
-];
 
 const PAYMENT_OPTIONS = {
   deposit: "deposit",
@@ -46,6 +37,29 @@ const PAYMENT_OPTIONS = {
 
 const SQUARE_PAYMENTS_ENABLED =
   import.meta.env.VITE_SQUARE_PAYMENTS_ENABLED === "true";
+
+async function getFunctionErrorMessage(functionError, fallbackMessage) {
+  if (!functionError) return fallbackMessage;
+
+  try {
+    const response = functionError.context;
+
+    if (response && typeof response.json === "function") {
+      const responseBody = await response.json();
+
+      return (
+        responseBody?.error ||
+        responseBody?.message ||
+        functionError.message ||
+        fallbackMessage
+      );
+    }
+  } catch {
+    // Use the function error message when the response body cannot be parsed.
+  }
+
+  return functionError.message || fallbackMessage;
+}
 
 export default function Services() {
   const { user } = useAuth();
@@ -66,6 +80,9 @@ export default function Services() {
   const [paymentOption, setPaymentOption] = useState(
     PAYMENT_OPTIONS.deposit
   );
+
+  const [availableTimes, setAvailableTimes] = useState([]);
+  const [loadingTimes, setLoadingTimes] = useState(false);
 
   const [loadingBarbers, setLoadingBarbers] = useState(true);
   const [loadingServices, setLoadingServices] = useState(false);
@@ -154,6 +171,51 @@ export default function Services() {
       active = false;
     };
   }, [selectedBarberId]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadAvailableTimes() {
+      setTime("");
+
+      if (!selectedBarberId || !selectedServiceId || !date) {
+        setAvailableTimes([]);
+        return;
+      }
+
+      setLoadingTimes(true);
+      setError("");
+
+      try {
+        const rows = await getAvailableAppointmentSlots({
+          barberId: selectedBarberId,
+          serviceId: selectedServiceId,
+          appointmentDate: date,
+        });
+
+        if (!active) return;
+
+        setAvailableTimes(rows ?? []);
+      } catch (loadError) {
+        console.error("Unable to load available times:", loadError);
+
+        if (active) {
+          setAvailableTimes([]);
+          setError(
+            "We could not load appointment times for this date. Please try another date."
+          );
+        }
+      } finally {
+        if (active) setLoadingTimes(false);
+      }
+    }
+
+    loadAvailableTimes();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedBarberId, selectedServiceId, date]);
 
   useEffect(() => {
     if (!user) return;
@@ -250,7 +312,34 @@ export default function Services() {
     setSubmitting(true);
     setError("");
 
+    let createdAppointment = null;
+    let checkoutAttempted = false;
+
     try {
+      const latestTimes = await getAvailableAppointmentSlots({
+        barberId: selectedBarber.id,
+        serviceId: selectedService.id,
+        appointmentDate: date,
+      });
+
+      const selectedDatabaseTime =
+        convertTimeToDatabaseFormat(time);
+
+      const slotStillAvailable = latestTimes.some(
+        (slot) =>
+          convertTimeToDatabaseFormat(slot) ===
+          selectedDatabaseTime
+      );
+
+      if (!slotStillAvailable) {
+        setAvailableTimes(latestTimes);
+        setTime("");
+
+        throw new Error(
+          "That appointment time is no longer available. Please choose another time."
+        );
+      }
+
       const appointment = await createAppointment({
         barber_id: selectedBarber.id,
         service_id: selectedService.id,
@@ -262,9 +351,11 @@ export default function Services() {
         email: email.trim(),
         phone: phone.trim(),
         booking_source: "online",
-        status: requiresOnlinePayment ? "pending_payment" : "pending",
+        status: "pending",
         payment_option: paymentOption,
-        payment_status: "unpaid",
+        payment_status: requiresOnlinePayment
+          ? "unpaid"
+          : "payment_not_connected",
         service_price: servicePrice,
         deposit_amount: requiredDeposit,
         amount_due_now: requiresOnlinePayment ? selectedPaymentAmount : 0,
@@ -275,6 +366,70 @@ export default function Services() {
           ? createPaymentExpiration()
           : null,
       });
+
+      createdAppointment = appointment;
+
+      if (requiresOnlinePayment) {
+        checkoutAttempted = true;
+
+        const redirectUrl = new URL(
+          `${import.meta.env.BASE_URL}booking-confirmation`,
+          window.location.origin
+        );
+
+        redirectUrl.searchParams.set("booking_id", appointment.id);
+
+        const checkoutRedirectUrl = redirectUrl.toString();
+
+        const {
+          data: checkoutData,
+          error: checkoutError,
+        } = await supabase.functions.invoke(
+          "square-create-checkout",
+          {
+            body: {
+              booking_id: appointment.id,
+              barber_id: appointment.barber_id,
+              service_id: appointment.service_id,
+              service_name: selectedService.name,
+              amount: Math.round(selectedPaymentAmount * 100),
+              currency: "USD",
+              payment_type: paymentOption,
+              customer_name: name.trim(),
+              customer_email: email.trim(),
+              customer_phone: phone.trim(),
+              redirect_url: checkoutRedirectUrl,
+            },
+          }
+        );
+
+        if (checkoutError) {
+          const message = await getFunctionErrorMessage(
+            checkoutError,
+            "Unable to start Square Checkout."
+          );
+
+          throw new Error(message);
+        }
+
+        const checkoutUrl =
+          checkoutData?.checkout_url ||
+          checkoutData?.url;
+
+        if (!checkoutUrl) {
+          console.error(
+            "Unexpected square-create-checkout response:",
+            checkoutData
+          );
+
+          throw new Error(
+            "Square did not return a checkout URL."
+          );
+        }
+
+        window.location.assign(checkoutUrl);
+        return;
+      }
 
       setSubmitted({
         ...appointment,
@@ -292,9 +447,78 @@ export default function Services() {
         requiresOnlinePayment,
       });
     } catch (submitError) {
-      console.error("Unable to create appointment:", submitError);
+      console.error("Unable to complete appointment:", submitError);
+
+      const message = submitError?.message || "";
+
+      if (
+        message.includes("appointments_no_barber_overlap") ||
+        message.includes("conflicting key value violates exclusion constraint")
+      ) {
+        setError(
+          "That appointment time was just booked. Please choose another available time."
+        );
+        setTime("");
+
+        try {
+          const refreshedTimes =
+            await getAvailableAppointmentSlots({
+              barberId: selectedBarber.id,
+              serviceId: selectedService.id,
+              appointmentDate: date,
+            });
+
+          setAvailableTimes(refreshedTimes);
+        } catch (refreshError) {
+          console.error(
+            "Unable to refresh appointment times:",
+            refreshError
+          );
+        }
+
+        return;
+      }
+
+      if (
+        checkoutAttempted &&
+        requiresOnlinePayment &&
+        createdAppointment?.id
+      ) {
+        const removed = await removeUnpaidAppointment(
+          createdAppointment.id
+        );
+
+        if (removed) {
+          setError(
+            "Unable to start payment. Your appointment was not booked. Please try again."
+          );
+
+          try {
+            const refreshedTimes =
+              await getAvailableAppointmentSlots({
+                barberId: selectedBarber.id,
+                serviceId: selectedService.id,
+                appointmentDate: date,
+              });
+
+            setAvailableTimes(refreshedTimes);
+          } catch (refreshError) {
+            console.error(
+              "Unable to refresh appointment times:",
+              refreshError
+            );
+          }
+        } else {
+          setError(
+            "Payment could not be started, and the temporary appointment could not be removed automatically. Please contact the shop before trying again."
+          );
+        }
+
+        return;
+      }
+
       setError(
-        submitError?.message ||
+        message ||
           "Could not save your appointment request. Please try again."
       );
     } finally {
@@ -507,9 +731,14 @@ export default function Services() {
                     type="date"
                     value={date}
                     min={getTodayDate()}
-                    onChange={(event) => setDate(event.target.value)}
+                    onChange={(event) => {
+                      setDate(event.target.value);
+                      setTime("");
+                      setError("");
+                    }}
                     required
-                    className="w-full bg-transparent text-sm text-ink focus:outline-none"
+                    disabled={!selectedBarberId || !selectedServiceId}
+                    className="w-full bg-transparent text-sm text-ink focus:outline-none disabled:opacity-50"
                   />
                 </InputShell>
               </FieldLabel>
@@ -520,17 +749,40 @@ export default function Services() {
                     value={time}
                     onChange={(event) => setTime(event.target.value)}
                     required
-                    className="w-full bg-transparent text-sm text-ink focus:outline-none"
+                    disabled={
+                      loadingTimes ||
+                      !date ||
+                      availableTimes.length === 0
+                    }
+                    className="w-full bg-transparent text-sm text-ink focus:outline-none disabled:opacity-50"
                   >
-                    <option value="">Select a time</option>
-                    {TIMES.map((availableTime) => (
-                      <option key={availableTime} value={availableTime}>
-                        {availableTime}
+                    <option value="">
+                      {loadingTimes
+                        ? "Loading available times..."
+                        : !date
+                          ? "Select a date first"
+                          : availableTimes.length === 0
+                            ? "No times available"
+                            : "Select a time"}
+                    </option>
+
+                    {availableTimes.map((availableTime) => (
+                      <option
+                        key={availableTime}
+                        value={availableTime}
+                      >
+                        {formatDisplayTime(availableTime)}
                       </option>
                     ))}
                   </select>
                 </InputShell>
               </FieldLabel>
+
+              {date && !loadingTimes && availableTimes.length === 0 && (
+                <div className="sm:col-span-2 rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                  This barber has no available times on the selected date. Please choose another date.
+                </div>
+              )}
 
               <FieldLabel label="NAME">
                 <InputShell icon={<User size={16} />}>
@@ -644,6 +896,7 @@ export default function Services() {
                   submitting ||
                   loadingBarbers ||
                   loadingServices ||
+                  loadingTimes ||
                   !selectedBarberId ||
                   !selectedServiceId ||
                   !date ||
@@ -675,6 +928,35 @@ export default function Services() {
       </div>
     </div>
   );
+}
+
+
+async function removeUnpaidAppointment(appointmentId) {
+  if (!appointmentId) return false;
+
+  try {
+    const { error } = await supabase
+      .from("appointments")
+      .delete()
+      .eq("id", appointmentId)
+      .eq("payment_status", "unpaid");
+
+    if (error) {
+      console.error(
+        "Unable to remove unpaid appointment:",
+        error
+      );
+      return false;
+    }
+
+    return true;
+  } catch (cleanupError) {
+    console.error(
+      "Unable to remove unpaid appointment:",
+      cleanupError
+    );
+    return false;
+  }
 }
 
 function FieldLabel({ label, children }) {
@@ -776,4 +1058,31 @@ function formatDisplayDate(dateValue) {
     day: "numeric",
     year: "numeric",
   }).format(date);
+}
+
+
+function formatDisplayTime(timeValue) {
+  if (!timeValue) return "";
+
+  const normalized =
+    convertTimeToDatabaseFormat(timeValue);
+
+  const [hours, minutes] =
+    normalized.split(":").map(Number);
+
+  const date = new Date(
+    2000,
+    0,
+    1,
+    hours,
+    minutes
+  );
+
+  return new Intl.DateTimeFormat(
+    "en-US",
+    {
+      hour: "numeric",
+      minute: "2-digit",
+    }
+  ).format(date);
 }

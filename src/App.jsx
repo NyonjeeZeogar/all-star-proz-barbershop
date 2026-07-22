@@ -28,6 +28,7 @@ import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
+import BookingConfirmation from "@/pages/BookingConfirmation";
 
 function LoadingScreen() {
   return (
@@ -84,6 +85,10 @@ function AuthenticatedApp() {
           />
           <Route path="/services" element={<Services />} />
           <Route path="/contact" element={<Contact />} />
+          <Route
+            path="/booking-confirmation"
+            element={<BookingConfirmation />}
+          />
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
 
