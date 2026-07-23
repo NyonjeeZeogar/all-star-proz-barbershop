@@ -17,6 +17,7 @@ import {
 
 import { useAuth } from "@/lib/AuthContext";
 import { ASSETS } from "@/lib/assets";
+import { supabase } from "@/lib/supabaseClient";
 
 import TodayAppointments from "@/components/portal/TodayAppointments";
 import AppointmentHistory from "@/components/portal/AppointmentHistory";
@@ -304,6 +305,64 @@ export default function BarberPortal() {
     }
   };
 
+  const onRefund = async (
+    appointmentId,
+    {
+      amount_cents,
+      reason,
+    }
+  ) => {
+    try {
+      setError("");
+
+      const {
+        data,
+        error: refundError,
+      } = await supabase.functions.invoke(
+        "square-create-refund",
+        {
+          body: {
+            booking_id:
+              appointmentId,
+            amount_cents,
+            reason,
+          },
+        }
+      );
+
+      if (refundError) {
+        throw refundError;
+      }
+
+      /*
+       * Square sends the final completed state through
+       * refund webhooks. Refresh immediately and once
+       * more after a short delay so the UI picks up the
+       * webhook update without a full page reload.
+       */
+      await loadAppointments();
+
+      window.setTimeout(() => {
+        loadAppointments();
+      }, 1800);
+
+      return data;
+    } catch (err) {
+      console.error(
+        "Unable to refund appointment payment:",
+        err
+      );
+
+      const message =
+        err?.context?.body?.message ||
+        err?.message ||
+        "Unable to submit the refund.";
+
+      setError(message);
+      throw new Error(message);
+    }
+  };
+
   const onSaveNote = async (
     appointmentId,
     note
@@ -419,6 +478,7 @@ export default function BarberPortal() {
               onConfirm={onConfirm}
               onCancel={onCancel}
               onSaveNote={onSaveNote}
+              onRefund={onRefund}
             />
           ) : tab === "schedule" ? (
             <WeeklySchedule
@@ -440,6 +500,7 @@ export default function BarberPortal() {
               onConfirm={onConfirm}
               onCancel={onCancel}
               onSaveNote={onSaveNote}
+              onRefund={onRefund}
             />
           )}
         </div>

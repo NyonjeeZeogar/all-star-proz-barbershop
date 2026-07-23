@@ -10,6 +10,7 @@ export default function TodayAppointments({
   onConfirm,
   onCancel,
   onSaveNote,
+  onRefund,
 }) {
   if (items.length === 0) {
     return (
@@ -39,6 +40,7 @@ export default function TodayAppointments({
           onConfirm={onConfirm}
           onCancel={onCancel}
           onSaveNote={onSaveNote}
+          onRefund={onRefund}
         />
       ))}
     </div>
