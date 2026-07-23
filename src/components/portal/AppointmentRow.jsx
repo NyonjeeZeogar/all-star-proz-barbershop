@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { formatTime } from "@/lib/dateTime";
+
 import {
   CalendarDays,
   Clock,
@@ -163,7 +165,7 @@ export default function AppointmentRow({
             {appointmentTime && (
               <span className="inline-flex items-center gap-1">
                 <Clock size={14} />
-                {appointmentTime}
+                {formatTime(appointmentTime)}
               </span>
             )}
 

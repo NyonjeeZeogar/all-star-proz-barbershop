@@ -17,6 +17,7 @@ import {
   cancelAppointment,
   getMyAppointments,
 } from "@/services/appointments";
+import { formatTime } from "@/lib/dateTime";
 
 const STATUS = {
   pending_payment: {
@@ -331,9 +332,7 @@ export default function MyBookings() {
                         {appointmentTime && (
                           <span className="inline-flex items-center gap-1">
                             <Clock size={14} />
-                            {formatAppointmentTime(
-                              appointmentTime
-                            )}
+                            {formatTime(appointmentTime)}
                           </span>
                         )}
 
@@ -470,34 +469,6 @@ function formatAppointmentDate(dateValue) {
     month: "short",
     day: "numeric",
     year: "numeric",
-  }).format(date);
-}
-
-function formatAppointmentTime(timeValue) {
-  if (!timeValue) {
-    return "";
-  }
-
-  const normalizedTime =
-    String(timeValue).slice(0, 5);
-
-  const [hours, minutes] =
-    normalizedTime.split(":").map(Number);
-
-  if (
-    Number.isNaN(hours) ||
-    Number.isNaN(minutes)
-  ) {
-    return String(timeValue);
-  }
-
-  const date = new Date();
-
-  date.setHours(hours, minutes, 0, 0);
-
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
   }).format(date);
 }
 
