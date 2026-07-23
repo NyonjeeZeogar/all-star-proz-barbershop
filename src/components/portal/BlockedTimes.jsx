@@ -16,6 +16,8 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { formatTime } from "@/lib/dateTime";
+
 import {
   createBarberTimeBlock,
   createBarberTimeBlocks,
@@ -120,29 +122,6 @@ function formatDate(value) {
   ).format(
     new Date(`${value}T12:00:00`)
   );
-}
-
-function formatTime(value) {
-  if (!value) return "";
-
-  const [hours, minutes] =
-    value.split(":").map(Number);
-
-  const date = new Date(
-    2000,
-    0,
-    1,
-    hours,
-    minutes
-  );
-
-  return new Intl.DateTimeFormat(
-    "en-US",
-    {
-      hour: "numeric",
-      minute: "2-digit",
-    }
-  ).format(date);
 }
 
 export default function BlockedTimes() {

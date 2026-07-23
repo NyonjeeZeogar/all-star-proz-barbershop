@@ -27,7 +27,13 @@ import {
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 import { LOCATIONS } from "@/lib/assets";
+import { formatTime } from "@/lib/dateTime";
 import SectionHeading from "@/components/site/SectionHeading";
+import {
+  formatUsPhone,
+  isCompleteUsPhone,
+  normalizeUsPhone,
+} from "@/lib/phone";
 
 
 const PAYMENT_OPTIONS = {
@@ -282,6 +288,18 @@ export default function Services() {
       return;
     }
 
+    if (!isCompleteUsPhone(phone)) {
+      setError("Enter a complete 10-digit US phone number.");
+      return;
+    }
+
+    const normalizedPhone = normalizeUsPhone(phone);
+
+    if (!normalizedPhone) {
+      setError("Enter a valid 10-digit US phone number.");
+      return;
+    }
+
     if (servicePrice <= 0) {
       setError("This service does not have a valid price.");
       return;
@@ -349,7 +367,7 @@ export default function Services() {
         start_time: databaseTime,
         name: name.trim(),
         email: email.trim(),
-        phone: phone.trim(),
+        phone: normalizedPhone,
         booking_source: "online",
         status: "pending",
         payment_option: paymentOption,
@@ -397,7 +415,7 @@ export default function Services() {
               payment_type: paymentOption,
               customer_name: name.trim(),
               customer_email: email.trim(),
-              customer_phone: phone.trim(),
+              customer_phone: normalizedPhone,
               redirect_url: checkoutRedirectUrl,
             },
           }
@@ -438,7 +456,7 @@ export default function Services() {
           selectedBarber.full_name || selectedBarber.email || "Selected barber",
         location,
         date,
-        displayTime: time,
+        displayTime: formatTime(time),
         paymentOption,
         servicePrice,
         requiredDeposit,
@@ -490,7 +508,8 @@ export default function Services() {
 
         if (removed) {
           setError(
-            "Unable to start payment. Your appointment was not booked. Please try again."
+            message ||
+              "Unable to start payment. Your appointment was not booked. Please try again."
           );
 
           try {
@@ -510,7 +529,8 @@ export default function Services() {
           }
         } else {
           setError(
-            "Payment could not be started, and the temporary appointment could not be removed automatically. Please contact the shop before trying again."
+            message ||
+              "Payment could not be started, and the temporary appointment could not be removed automatically. Please contact the shop before trying again."
           );
         }
 
@@ -771,7 +791,7 @@ export default function Services() {
                         key={availableTime}
                         value={availableTime}
                       >
-                        {formatDisplayTime(availableTime)}
+                        {formatTime(availableTime)}
                       </option>
                     ))}
                   </select>
@@ -814,16 +834,31 @@ export default function Services() {
               <div className="sm:col-span-2">
                 <FieldLabel label="PHONE">
                   <InputShell icon={<Phone size={16} />}>
+                    <span
+                      aria-hidden="true"
+                      className="shrink-0 border-r border-ink/15 pr-3 text-sm font-bold text-ink/65"
+                    >
+                      +1
+                    </span>
                     <input
                       type="tel"
                       value={phone}
-                      onChange={(event) => setPhone(event.target.value)}
+                      onChange={(event) => {
+                        setPhone(formatUsPhone(event.target.value));
+                        setError("");
+                      }}
                       required
-                      autoComplete="tel"
-                      placeholder="Your phone number"
+                      autoComplete="tel-national"
+                      inputMode="tel"
+                      maxLength={12}
+                      placeholder="763-620-2266"
+                      aria-describedby="phone-help"
                       className="w-full bg-transparent text-sm text-ink focus:outline-none"
                     />
                   </InputShell>
+                  <p id="phone-help" className="mt-2 text-xs text-ink/50">
+                    Enter your 10-digit US phone number.
+                  </p>
                 </FieldLabel>
               </div>
 
@@ -1058,31 +1093,4 @@ function formatDisplayDate(dateValue) {
     day: "numeric",
     year: "numeric",
   }).format(date);
-}
-
-
-function formatDisplayTime(timeValue) {
-  if (!timeValue) return "";
-
-  const normalized =
-    convertTimeToDatabaseFormat(timeValue);
-
-  const [hours, minutes] =
-    normalized.split(":").map(Number);
-
-  const date = new Date(
-    2000,
-    0,
-    1,
-    hours,
-    minutes
-  );
-
-  return new Intl.DateTimeFormat(
-    "en-US",
-    {
-      hour: "numeric",
-      minute: "2-digit",
-    }
-  ).format(date);
 }

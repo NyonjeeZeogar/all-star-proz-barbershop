@@ -1,5 +1,6 @@
 import React from "react";
 import { MapPin, Clock, CalendarX } from "lucide-react";
+import { formatTime } from "@/lib/dateTime";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -33,7 +34,7 @@ export default function WeeklySchedule({ availability }) {
             </div>
             {s.available && (
               <div className="mt-2 inline-flex items-center gap-1.5 text-sm text-ink/60">
-                <Clock size={14} /> {s.start} – {s.end}
+                <Clock size={14} /> {formatTime(s.start)} – {formatTime(s.end)}
               </div>
             )}
           </div>

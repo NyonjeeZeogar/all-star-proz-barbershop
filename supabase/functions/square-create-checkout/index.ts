@@ -64,6 +64,31 @@ function positiveInteger(value: unknown, field: string) {
   return Math.round(amount);
 }
 
+
+/**
+ * Converts an optional US phone number to E.164.
+ *
+ * Invalid or incomplete values return null so an optional phone number never
+ * prevents checkout from continuing.
+ */
+function normalizeOptionalUsPhone(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  let digits = value.replace(/\D/g, "");
+
+  if (digits.length === 11 && digits.startsWith("1")) {
+    digits = digits.slice(1);
+  }
+
+  if (digits.length !== 10) {
+    return null;
+  }
+
+  return `+1${digits}`;
+}
+
 function base64ToBytes(value: string): Uint8Array {
   const normalized = value
     .replace(/-/g, "+")
@@ -657,9 +682,12 @@ Deno.serve(async (req) => {
         body.customer_email;
     }
 
-    if (body.customer_phone) {
+    const normalizedCustomerPhone =
+      normalizeOptionalUsPhone(body.customer_phone);
+
+    if (normalizedCustomerPhone) {
       prePopulatedData.buyer_phone_number =
-        body.customer_phone;
+        normalizedCustomerPhone;
     }
 
     if (Object.keys(prePopulatedData).length > 0) {

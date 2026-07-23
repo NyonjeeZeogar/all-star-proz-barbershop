@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { formatDateTime } from "@/lib/dateTime";
 
 const POLL_INTERVAL_MS = 2500;
 const MAX_POLL_ATTEMPTS = 24;
@@ -135,10 +136,7 @@ export default function BookingConfirmation() {
   }, [bookingId, statusUrl]);
 
   const appointmentDate = state.booking?.appointmentStart
-    ? new Intl.DateTimeFormat(undefined, {
-        dateStyle: "full",
-        timeStyle: "short",
-      }).format(new Date(state.booking.appointmentStart))
+    ? formatDateTime(state.booking.appointmentStart)
     : null;
 
   return (
