@@ -22,6 +22,7 @@ import Contact from "@/pages/Contact";
 import Terms from "@/pages/Terms";
 import Privacy from "@/pages/Privacy";
 import MyBookings from "@/pages/MyBookings";
+import AppointmentDetails from "@/pages/AppointmentDetails";
 import BarberPortal from "@/pages/BarberPortal";
 import AdminDashboard from "@/pages/AdminDashboard";
 import Login from "@/pages/Login";
@@ -84,6 +85,10 @@ function AuthenticatedApp() {
             element={<LocationDetail />}
           />
           <Route path="/services" element={<Services />} />
+          <Route
+            path="/book"
+            element={<Navigate to="/bookings" replace />}
+          />
           <Route path="/contact" element={<Contact />} />
           <Route
             path="/booking-confirmation"
@@ -107,10 +112,28 @@ function AuthenticatedApp() {
               element={<MyBookings />}
             />
 
+            <Route
+              path="/appointments/:id"
+              element={<AppointmentDetails />}
+            />
+
             {/* Barber accounts only */}
             <Route
               element={<RoleRoute roles={["barber"]} />}
             >
+              <Route path="/barber" element={<Navigate to="/portal" replace />} />
+              <Route
+                path="/barber/dashboard"
+                element={<Navigate to="/portal" replace />}
+              />
+              <Route
+                path="/barber/appointments"
+                element={<Navigate to="/portal?tab=bookings" replace />}
+              />
+              <Route
+                path="/barber/appointments/:id"
+                element={<AppointmentDetails />}
+              />
               <Route
                 path="/portal"
                 element={<BarberPortal />}

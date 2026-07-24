@@ -407,35 +407,44 @@ export default function MyBookings() {
                       )}
                     </div>
 
-                    {canCancel && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleCancelBooking(
-                            booking.id
-                          )
-                        }
-                        disabled={
-                          cancellingId === booking.id
-                        }
-                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full border border-ink/15 px-4 py-2 font-heading text-xs font-bold text-ink/70 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <Link
+                        to={`/appointments/${booking.id}`}
+                        className="inline-flex items-center justify-center rounded-full bg-ink px-4 py-2 font-heading text-xs font-bold text-white transition-colors hover:bg-ink/85"
                       >
-                        {cancellingId ===
-                        booking.id ? (
-                          <Loader2
-                            className="animate-spin"
-                            size={14}
-                          />
-                        ) : (
-                          <X size={14} />
-                        )}
+                        Manage
+                      </Link>
 
-                        {cancellingId ===
-                        booking.id
-                          ? "Cancelling..."
-                          : "Cancel"}
-                      </button>
-                    )}
+                      {canCancel && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleCancelBooking(
+                              booking.id
+                            )
+                          }
+                          disabled={
+                            cancellingId === booking.id
+                          }
+                          className="inline-flex items-center justify-center gap-2 rounded-full border border-ink/15 px-4 py-2 font-heading text-xs font-bold text-ink/70 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {cancellingId ===
+                          booking.id ? (
+                            <Loader2
+                              className="animate-spin"
+                              size={14}
+                            />
+                          ) : (
+                            <X size={14} />
+                          )}
+
+                          {cancellingId ===
+                          booking.id
+                            ? "Cancelling..."
+                            : "Cancel"}
+                        </button>
+                      )}
+                    </div>
                   </article>
                 );
               })}

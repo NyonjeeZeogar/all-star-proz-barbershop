@@ -4,6 +4,7 @@ import React, {
   useMemo,
   useState,
 } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import {
   CalendarCheck,
@@ -91,8 +92,13 @@ function getAppointmentTimestamp(appointment) {
 
 export default function BarberPortal() {
   const { profile } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const initialTab = TABS.some(({ id }) => id === requestedTab)
+    ? requestedTab
+    : "bookings";
 
-  const [tab, setTab] = useState("bookings");
+  const [tab, setTab] = useState(initialTab);
 
   const [appointments, setAppointments] =
     useState([]);
@@ -440,9 +446,10 @@ export default function BarberPortal() {
                 <button
                   key={id}
                   type="button"
-                  onClick={() =>
-                    setTab(id)
-                  }
+                  onClick={() => {
+                    setTab(id);
+                    setSearchParams({ tab: id });
+                  }}
                   className={`inline-flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2.5 font-heading text-sm font-bold transition-colors ${
                     tab === id
                       ? "bg-cta text-white"

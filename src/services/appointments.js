@@ -497,6 +497,59 @@ export async function getMyAppointments() {
 }
 
 /**
+ * Loads one appointment owned by the authenticated customer.
+ */
+export async function getAppointmentById(appointmentId) {
+  const user = await getAuthenticatedUser();
+
+  if (!appointmentId) {
+    throw new Error("An appointment ID is required.");
+  }
+
+  const { data, error } = await supabase
+    .from("appointments")
+    .select(`
+      *,
+      service_details:services (
+        id,
+        name,
+        description,
+        price,
+        deposit,
+        duration_minutes,
+        active
+      ),
+      barber:profiles!appointments_barber_id_fkey (
+        id,
+        full_name,
+        email,
+        phone,
+        role
+      )
+    `)
+    .eq("id", appointmentId)
+    .eq("customer_id", user.id)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError(
+      "Unable to load appointment",
+      error
+    );
+
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error(
+      "This appointment could not be found or you do not have permission to view it."
+    );
+  }
+
+  return data;
+}
+
+/**
  * Loads active services from the agency-managed service catalog.
  */
 export async function getActiveServices() {

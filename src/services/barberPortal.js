@@ -151,6 +151,29 @@ export async function getPortalAppointments() {
 }
 
 /**
+ * Loads one appointment assigned to the signed-in barber.
+ * Administrators may open any appointment.
+ */
+export async function getPortalAppointmentById(appointmentId) {
+  if (!appointmentId) {
+    throw new Error("An appointment ID is required.");
+  }
+
+  const appointments = await getPortalAppointments();
+  const appointment = appointments.find(
+    (item) => item.id === appointmentId
+  );
+
+  if (!appointment) {
+    throw new Error(
+      "This appointment could not be found or you do not have permission to view it."
+    );
+  }
+
+  return appointment;
+}
+
+/**
  * Updates fields that a barber is allowed to manage.
  */
 export async function updatePortalAppointment(appointmentId, updates) {

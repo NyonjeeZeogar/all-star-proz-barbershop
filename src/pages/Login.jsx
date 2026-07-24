@@ -5,10 +5,8 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import {
-  ArrowLeft,
-  Loader2,
-} from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
+
 import { useAuth } from "@/lib/AuthContext";
 
 export default function Login() {
@@ -23,9 +21,11 @@ export default function Login() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] =
     useState(false);
+
   const [error, setError] = useState("");
 
   const destination =
@@ -72,6 +72,7 @@ export default function Login() {
       setGoogleLoading(false);
     }
   };
+
 
   return (
     <main className="grid min-h-screen place-items-center bg-muted/30 px-5 py-12">
@@ -144,6 +145,7 @@ export default function Login() {
             </p>
           )}
 
+
           <button
             type="submit"
             disabled={loading}
@@ -176,6 +178,7 @@ export default function Login() {
               ? "Redirecting..."
               : "Continue with Google"}
           </button>
+
         </form>
 
         <div className="mt-6 flex items-center justify-between gap-4 text-sm">
