@@ -19,15 +19,25 @@ import {
 } from "lucide-react";
 
 import {
-  createAppointment,
+  createAppointmentWithServices,
   getAvailableAppointmentSlots,
   getBarbers,
   getBarberServices,
+  getPricingQuote,
 } from "@/services/appointments";
+import AdditionalServices from "@/components/booking/AdditionalServices";
+import PricingSummary from "@/components/booking/PricingSummary";
 import { useAuth } from "@/lib/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 import { LOCATIONS } from "@/lib/assets";
 import { formatTime } from "@/lib/dateTime";
+import {
+  dollarsToCents,
+  formatCents,
+  getBookingFeeCents,
+  getDepositPreviewCents,
+  getServiceDepositCents,
+} from "@/lib/pricing";
 import SectionHeading from "@/components/site/SectionHeading";
 import {
   formatUsPhone,
@@ -74,6 +84,8 @@ export default function Services() {
   const [services, setServices] = useState([]);
   const [selectedBarberId, setSelectedBarberId] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState("");
+  const [primaryQuantity, setPrimaryQuantity] = useState(1);
+  const [extraPrimaryServices, setExtraPrimaryServices] = useState([]);
 
   const [location, setLocation] = useState(
     LOCATIONS.find((item) => item.available)?.name || ""
@@ -86,6 +98,10 @@ export default function Services() {
   const [paymentOption, setPaymentOption] = useState(
     PAYMENT_OPTIONS.deposit
   );
+  const [additionalServices, setAdditionalServices] = useState([]);
+  const [tipCents, setTipCents] = useState(0);
+  const [pricingQuote, setPricingQuote] = useState(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
 
   const [availableTimes, setAvailableTimes] = useState([]);
   const [loadingTimes, setLoadingTimes] = useState(false);
@@ -152,11 +168,18 @@ export default function Services() {
 
         const loadedServices = rows ?? [];
         setServices(loadedServices);
-        setSelectedServiceId((currentId) =>
-          loadedServices.some((service) => service.id === currentId)
+        setAdditionalServices([]);
+        setExtraPrimaryServices([]);
+        setPrimaryQuantity(1);
+        setSelectedServiceId((currentId) => {
+          const primaryServices = loadedServices.filter(
+            (service) => !service.is_add_on
+          );
+
+          return primaryServices.some((service) => service.id === currentId)
             ? currentId
-            : loadedServices[0]?.id || ""
-        );
+            : primaryServices[0]?.id || "";
+        });
       } catch (loadError) {
         console.error("Unable to load barber services:", loadError);
         if (active) {
@@ -178,6 +201,82 @@ export default function Services() {
     };
   }, [selectedBarberId]);
 
+
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fullName =
+      user.user_metadata?.full_name || user.user_metadata?.name || "";
+
+    setName((current) => current || fullName);
+    setEmail((current) => current || user.email || "");
+  }, [user]);
+
+  const selectedBarber = useMemo(
+    () => barbers.find((barber) => barber.id === selectedBarberId) || null,
+    [barbers, selectedBarberId]
+  );
+
+  const primaryServices = useMemo(
+    () => services.filter((service) => !service.is_add_on),
+    [services]
+  );
+
+  const selectedService = useMemo(
+    () => primaryServices.find((service) => service.id === selectedServiceId) || null,
+    [primaryServices, selectedServiceId]
+  );
+
+  const selectedServices = useMemo(() => {
+    if (!selectedService) return [];
+
+    const primary = {
+      ...selectedService,
+      service_id: selectedService.id,
+      quantity: primaryQuantity,
+    };
+
+    const extraPrimary = extraPrimaryServices
+      .filter((service) => service.id !== selectedService.id)
+      .map((service) => ({
+        ...service,
+        service_id: service.service_id || service.id,
+        quantity: Math.max(1, Number.parseInt(service.quantity, 10) || 1),
+      }));
+
+    const addOns = additionalServices
+      .filter((service) => service.id !== selectedService.id)
+      .map((service) => ({
+        ...service,
+        service_id: service.service_id || service.id,
+        quantity: Math.max(1, Number.parseInt(service.quantity, 10) || 1),
+      }));
+
+    return [primary, ...extraPrimary, ...addOns];
+  }, [
+    selectedService,
+    primaryQuantity,
+    extraPrimaryServices,
+    additionalServices,
+  ]);
+
+  const totalDurationMinutes = useMemo(
+    () =>
+      selectedServices.reduce(
+        (total, service) =>
+          total +
+          Number(service.duration_minutes || 0) *
+            Number(service.quantity || 1),
+        0
+      ),
+    [selectedServices]
+  );
+
+  useEffect(() => {
+    setTime("");
+  }, [totalDurationMinutes]);
+
   useEffect(() => {
     let active = true;
 
@@ -197,6 +296,7 @@ export default function Services() {
           barberId: selectedBarberId,
           serviceId: selectedServiceId,
           appointmentDate: date,
+          totalDurationMinutes,
         });
 
         if (!active) return;
@@ -221,49 +321,73 @@ export default function Services() {
     return () => {
       active = false;
     };
-  }, [selectedBarberId, selectedServiceId, date]);
+  }, [selectedBarberId, selectedServiceId, date, totalDurationMinutes]);
 
   useEffect(() => {
-    if (!user) return;
-
-    const fullName =
-      user.user_metadata?.full_name || user.user_metadata?.name || "";
-
-    setName((current) => current || fullName);
-    setEmail((current) => current || user.email || "");
-  }, [user]);
-
-  const selectedBarber = useMemo(
-    () => barbers.find((barber) => barber.id === selectedBarberId) || null,
-    [barbers, selectedBarberId]
-  );
-
-  const selectedService = useMemo(
-    () => services.find((service) => service.id === selectedServiceId) || null,
-    [services, selectedServiceId]
-  );
-
-  const servicePrice = parseMoney(selectedService?.price);
-  const requiredDeposit = parseMoney(selectedService?.deposit);
-
-  useEffect(() => {
-    if (!selectedService) return;
-
-    if (parseMoney(selectedService.deposit) <= 0) {
-      setPaymentOption(PAYMENT_OPTIONS.full);
+    if (selectedServices.length === 0) {
+      setPricingQuote(null);
+      return undefined;
     }
-  }, [selectedService]);
 
+    let cancelled = false;
+
+    async function loadQuote() {
+      setQuoteLoading(true);
+
+      try {
+        const quote = await getPricingQuote({
+          serviceIds: selectedServices.map(
+            (service) => service.service_id || service.id
+          ),
+          quantities: selectedServices.map(
+            (service) => service.quantity || 1
+          ),
+          tipCents,
+          paymentOption,
+        });
+
+        if (!cancelled) {
+          setPricingQuote(quote || null);
+        }
+      } catch (quoteError) {
+        console.error("Unable to calculate pricing:", quoteError);
+
+        if (!cancelled) {
+          setPricingQuote(null);
+          setError(
+            quoteError?.message ||
+              "Unable to calculate the booking fee and deposit."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setQuoteLoading(false);
+        }
+      }
+    }
+
+    loadQuote();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedServices, tipCents, paymentOption]);
+
+  const servicePrice =
+    Number(pricingQuote?.service_subtotal_cents || 0) / 100;
+  const requiredDeposit =
+    Number(pricingQuote?.deposit_cents || 0) / 100;
   const selectedPaymentAmount =
-    paymentOption === PAYMENT_OPTIONS.full
-      ? servicePrice
-      : requiredDeposit;
-
+    Number(pricingQuote?.charged_today_cents || 0) / 100;
   const amountDueNow = SQUARE_PAYMENTS_ENABLED
     ? selectedPaymentAmount
     : 0;
-
-  const remainingBalance = Math.max(servicePrice - amountDueNow, 0);
+  const remainingBalance =
+    Number(pricingQuote?.remaining_balance_cents || 0) / 100;
+  const bookingFee =
+    Number(pricingQuote?.booking_fee_cents || 0) / 100;
+  const grandTotal =
+    Number(pricingQuote?.grand_total_cents || 0) / 100;
 
   async function submit(event) {
     event.preventDefault();
@@ -316,6 +440,13 @@ export default function Services() {
       return;
     }
 
+    if (quoteLoading || !pricingQuote) {
+      setError(
+        "Pricing is still being calculated. Please wait a moment and try again."
+      );
+      return;
+    }
+
     const databaseTime = convertTimeToDatabaseFormat(time);
     const appointmentDateTime = createLocalAppointmentDate(date, databaseTime);
 
@@ -338,6 +469,7 @@ export default function Services() {
         barberId: selectedBarber.id,
         serviceId: selectedService.id,
         appointmentDate: date,
+        totalDurationMinutes,
       });
 
       const selectedDatabaseTime =
@@ -358,32 +490,30 @@ export default function Services() {
         );
       }
 
-      const appointment = await createAppointment({
-        barber_id: selectedBarber.id,
-        service_id: selectedService.id,
-        service: selectedService.name,
-        duration_minutes: selectedService.duration_minutes,
-        appointment_date: date,
-        start_time: databaseTime,
-        name: name.trim(),
-        email: email.trim(),
-        phone: normalizedPhone,
-        booking_source: "online",
-        status: "pending",
-        payment_option: paymentOption,
-        payment_status: requiresOnlinePayment
-          ? "unpaid"
-          : "payment_not_connected",
-        service_price: servicePrice,
-        deposit_amount: requiredDeposit,
-        amount_due_now: requiresOnlinePayment ? selectedPaymentAmount : 0,
-        amount_paid: 0,
-        remaining_balance: servicePrice,
-        currency: "USD",
-        payment_expires_at: requiresOnlinePayment
-          ? createPaymentExpiration()
-          : null,
-      });
+      const appointment = await createAppointmentWithServices(
+        {
+          barber_id: selectedBarber.id,
+          appointment_date: date,
+          start_time: databaseTime,
+          duration_minutes: totalDurationMinutes,
+          name: name.trim(),
+          email: email.trim(),
+          phone: normalizedPhone,
+          booking_source: "online",
+          status: "pending",
+          payment_option: paymentOption,
+          payment_status: requiresOnlinePayment
+            ? "unpaid"
+            : "payment_not_connected",
+          amount_paid: 0,
+          currency: "USD",
+          payment_expires_at: requiresOnlinePayment
+            ? createPaymentExpiration()
+            : null,
+        },
+        selectedServices,
+        pricingQuote
+      );
 
       createdAppointment = appointment;
 
@@ -410,7 +540,6 @@ export default function Services() {
               barber_id: appointment.barber_id,
               service_id: appointment.service_id,
               service_name: selectedService.name,
-              amount: Math.round(selectedPaymentAmount * 100),
               currency: "USD",
               payment_type: paymentOption,
               customer_name: name.trim(),
@@ -463,6 +592,8 @@ export default function Services() {
         selectedPaymentAmount,
         remainingBalance,
         requiresOnlinePayment,
+        selectedServices,
+        pricingQuote,
       });
     } catch (submitError) {
       console.error("Unable to complete appointment:", submitError);
@@ -484,6 +615,7 @@ export default function Services() {
               barberId: selectedBarber.id,
               serviceId: selectedService.id,
               appointmentDate: date,
+              totalDurationMinutes,
             });
 
           setAvailableTimes(refreshedTimes);
@@ -551,9 +683,11 @@ export default function Services() {
     setDate("");
     setTime("");
     setPhone("");
-    setPaymentOption(
-      requiredDeposit > 0 ? PAYMENT_OPTIONS.deposit : PAYMENT_OPTIONS.full
-    );
+    setPaymentOption(PAYMENT_OPTIONS.deposit);
+    setAdditionalServices([]);
+    setPrimaryQuantity(1);
+    setTipCents(0);
+    setPricingQuote(null);
     setError("");
   }
 
@@ -626,65 +760,92 @@ export default function Services() {
             </p>
 
             {loadingServices ? (
-              <div className="mt-4 flex items-center justify-center gap-2 rounded-2xl bg-muted/60 px-4 py-8 text-sm text-ink/60">
+              <div className="mt-4 flex items-center justify-center gap-2 rounded-2xl bg-muted/60 px-4 py-6 text-sm text-ink/60">
                 <Loader2 size={18} className="animate-spin" />
                 Loading services...
               </div>
-            ) : services.length === 0 ? (
+            ) : primaryServices.length === 0 ? (
               <div className="mt-4 rounded-2xl bg-muted/60 p-5 text-sm text-ink/60">
-                This barber has not enabled any services yet.
+                This barber has not enabled any primary services yet.
               </div>
             ) : (
-              <div className="mt-3 space-y-2">
-                {services.map((service) => {
-                  const selected = selectedServiceId === service.id;
-                  return (
-                    <button
-                      key={service.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedServiceId(service.id);
-                        setPaymentOption(
-                          parseMoney(service.deposit) > 0
-                            ? PAYMENT_OPTIONS.deposit
-                            : PAYMENT_OPTIONS.full
-                        );
-                        setError("");
-                      }}
-                      className={`flex w-full items-center gap-4 rounded-2xl px-4 py-4 text-left transition-colors ${
-                        selected
-                          ? "bg-cyanAccent/50 ring-2 ring-cta/30"
-                          : "bg-muted/60 hover:bg-muted"
-                      }`}
-                    >
-                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-ink font-heading text-sm font-bold text-white">
-                        {service.name?.[0]?.toUpperCase() || "S"}
-                      </span>
-                      <span className="flex-1">
-                        <span className="block font-heading text-sm font-bold text-ink">
-                          {service.name}
-                        </span>
-                        {service.description && (
-                          <span className="mt-0.5 block text-xs text-ink/60">
-                            {service.description}
-                          </span>
-                        )}
-                        <span className="mt-1 flex flex-wrap gap-x-2 text-xs text-ink/50">
-                          <span>{service.duration_minutes} minutes</span>
-                          <span>{formatCurrency(service.price)}</span>
-                          {parseMoney(service.deposit) > 0 && (
-                            <span className="font-semibold text-amber-700">
-                              Deposit {formatCurrency(service.deposit)}
-                            </span>
-                          )}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
+              <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
+                <div className="rounded-xl border border-ink/15 px-4 py-3">
+                  <select
+                    value={selectedServiceId}
+                    onChange={(event) => {
+                      setSelectedServiceId(event.target.value);
+                      setPrimaryQuantity(1);
+                      setExtraPrimaryServices([]);
+                      setAdditionalServices([]);
+                      setPaymentOption(PAYMENT_OPTIONS.deposit);
+                      setError("");
+                    }}
+                    className="w-full bg-transparent text-sm text-ink focus:outline-none"
+                  >
+                    <option value="">Select a service</option>
+                    {primaryServices.map((service) => (
+                      <option key={service.id} value={service.id}>
+                        {service.name} — {formatCurrency(service.price)} · {service.duration_minutes} min
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <QuantityControl
+                  label="Guests"
+                  value={primaryQuantity}
+                  min={1}
+                  max={4}
+                  onChange={setPrimaryQuantity}
+                />
+              </div>
+            )}
+
+            {selectedService && (
+              <div className="mt-3 rounded-2xl bg-cyanAccent/35 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-heading text-sm font-bold text-ink">
+                      {selectedService.name} × {primaryQuantity}
+                    </p>
+                    {selectedService.description && (
+                      <p className="mt-1 text-xs text-ink/60">
+                        {selectedService.description}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right text-xs text-ink/60">
+                    <p>{selectedService.duration_minutes} min each</p>
+                    <p>{formatCurrency(selectedService.price)} each</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink/60">
+                  <span>{totalDurationMinutes} minutes currently reserved</span>
+                  <span>Due today {formatCents(getDepositPreviewCents(dollarsToCents(selectedService.price) * primaryQuantity))}</span>
+                </div>
               </div>
             )}
           </div>
+
+          {selectedService && primaryServices.length > 1 && (
+            <div className="mt-6">
+              <AdditionalServices
+                services={primaryServices.filter(
+                  (service) => service.id !== selectedService.id
+                )}
+                selected={extraPrimaryServices}
+                onChange={(next) => {
+                  setExtraPrimaryServices(next);
+                  setTime("");
+                  setError("");
+                }}
+                includeAddOns={false}
+                title="Add another service"
+                description="Add different services to the same appointment and choose a quantity for each one."
+              />
+            </div>
+          )}
 
           {!user ? (
             <div className="mt-8 rounded-2xl bg-ink p-8 text-center text-white">
@@ -863,27 +1024,71 @@ export default function Services() {
               </div>
 
               <div className="sm:col-span-2">
+                <AdditionalServices
+                  services={services}
+                  selected={additionalServices}
+                  onChange={(next) => {
+                    setAdditionalServices(next);
+                    setTime("");
+                    setError("");
+                  }}
+                  includeAddOns
+                  title="Additional services"
+                  description="Choose a quantity for each add-on. Leave it at zero to skip it."
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <PricingSummary
+                  quote={pricingQuote}
+                  loading={quoteLoading}
+                  selectedServices={selectedServices}
+                  totalDurationMinutes={totalDurationMinutes}
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <p className="font-heading text-xs font-extrabold tracking-[0.2em] text-ink/50">
+                  OPTIONAL TIP
+                </p>
+                <InputShell icon={<Wallet size={16} />}>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={(tipCents / 100).toFixed(2)}
+                    onChange={(event) => {
+                      const amount = Number(event.target.value);
+                      setTipCents(
+                        Number.isFinite(amount)
+                          ? Math.max(0, Math.round(amount * 100))
+                          : 0
+                      );
+                    }}
+                    aria-label="Tip amount in dollars"
+                    className="w-full bg-transparent text-sm text-ink focus:outline-none"
+                  />
+                </InputShell>
+              </div>
+
+              <div className="sm:col-span-2">
                 <p className="font-heading text-xs font-extrabold tracking-[0.2em] text-ink/50">
                   PAYMENT PREFERENCE
                 </p>
                 <div className="mt-2 grid gap-3 sm:grid-cols-2">
                   <PaymentButton
                     active={paymentOption === PAYMENT_OPTIONS.deposit}
-                    disabled={requiredDeposit <= 0}
+                    disabled={!pricingQuote || quoteLoading}
                     icon={<Wallet size={18} />}
-                    title={
-                      requiredDeposit > 0
-                        ? `Pay deposit (${formatCurrency(requiredDeposit)})`
-                        : "Deposit not configured"
-                    }
-                    description="Reserve the appointment and pay the balance later."
+                    title={`Pay deposit + fee (${formatCurrency(selectedPaymentAmount)})`}
+                    description="Pay 50% of the services plus the booking fee now."
                     onClick={() => setPaymentOption(PAYMENT_OPTIONS.deposit)}
                   />
                   <PaymentButton
                     active={paymentOption === PAYMENT_OPTIONS.full}
                     icon={<CreditCard size={18} />}
-                    title={`Pay full amount (${formatCurrency(servicePrice)})`}
-                    description="Pay the complete service price when payments are enabled."
+                    title={`Pay full amount (${formatCurrency(grandTotal)})`}
+                    description="Pay the services, booking fee, and optional tip now."
                     onClick={() => setPaymentOption(PAYMENT_OPTIONS.full)}
                   />
                 </div>
@@ -896,17 +1101,14 @@ export default function Services() {
                       </p>
                       <p className="mt-1 font-heading text-xl font-extrabold text-ink">
                         {formatCurrency(
-                          SQUARE_PAYMENTS_ENABLED
-                            ? selectedPaymentAmount
-                            : paymentOption === PAYMENT_OPTIONS.full
-                              ? servicePrice
-                              : requiredDeposit
+                          selectedPaymentAmount
                         )}
                       </p>
                     </div>
                     <div className="text-right text-xs text-ink/60">
-                      <p>Service price: <strong>{formatCurrency(servicePrice)}</strong></p>
-                      <p className="mt-1">Deposit: <strong>{formatCurrency(requiredDeposit)}</strong></p>
+                      <p>Service subtotal: <strong>{formatCurrency(servicePrice)}</strong></p>
+                      <p className="mt-1">50% deposit: <strong>{formatCurrency(requiredDeposit)}</strong></p>
+                      <p className="mt-1">Booking fee: <strong>{formatCurrency(bookingFee)}</strong></p>
                     </div>
                   </div>
                 </div>
@@ -1010,6 +1212,39 @@ function InputShell({ icon, children }) {
     <div className="flex items-center gap-2 rounded-xl border border-ink/15 px-4 py-3">
       <span className="shrink-0 text-cta">{icon}</span>
       {children}
+    </div>
+  );
+}
+
+function QuantityControl({ label, value, min = 1, max = 4, onChange }) {
+  const quantity = Math.min(max, Math.max(min, Number(value) || min));
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-ink/15 px-3 py-2">
+      <span className="text-xs font-semibold text-ink/60">{label}</span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-label={`Decrease ${label.toLowerCase()}`}
+          disabled={quantity <= min}
+          onClick={() => onChange?.(Math.max(min, quantity - 1))}
+          className="grid h-8 w-8 place-items-center rounded-full border border-ink/15 text-lg font-bold text-ink disabled:opacity-35"
+        >
+          −
+        </button>
+        <span className="w-6 text-center font-heading text-sm font-bold text-ink">
+          {quantity}
+        </span>
+        <button
+          type="button"
+          aria-label={`Increase ${label.toLowerCase()}`}
+          disabled={quantity >= max}
+          onClick={() => onChange?.(Math.min(max, quantity + 1))}
+          className="grid h-8 w-8 place-items-center rounded-full border border-ink/15 text-lg font-bold text-ink disabled:opacity-35"
+        >
+          +
+        </button>
+      </div>
     </div>
   );
 }

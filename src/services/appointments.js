@@ -394,6 +394,36 @@ export async function createAppointment(
     remaining_balance:
       remainingBalance,
 
+    service_subtotal_cents:
+      appointment.service_subtotal_cents ?? Math.round(servicePrice * 100),
+
+    taxable_subtotal_cents:
+      appointment.taxable_subtotal_cents ?? Math.round(servicePrice * 100),
+
+    tax_rate:
+      appointment.tax_rate ?? 0,
+
+    tax_cents:
+      appointment.tax_cents ?? 0,
+
+    booking_fee_cents:
+      appointment.booking_fee_cents ?? 0,
+
+    tip_cents:
+      appointment.tip_cents ?? 0,
+
+    deposit_cents:
+      appointment.deposit_cents ?? Math.round(depositAmount * 100),
+
+    charged_today_cents:
+      appointment.charged_today_cents ?? Math.round(amountDueNow * 100),
+
+    remaining_balance_cents:
+      appointment.remaining_balance_cents ?? Math.round(remainingBalance * 100),
+
+    pricing_snapshot:
+      appointment.pricing_snapshot ?? null,
+
     currency:
       appointment.currency ||
       "USD",
@@ -461,7 +491,17 @@ export async function getMyAppointments() {
           price,
           deposit,
           duration_minutes,
+          taxable,
+          is_add_on,
           active
+        ),
+        appointment_services (
+          id,
+          service_id,
+          service_name,
+          unit_price_cents,
+          quantity,
+          line_total_cents
         ),
         barber:profiles!appointments_barber_id_fkey (
           id,
@@ -517,7 +557,17 @@ export async function getAppointmentById(appointmentId) {
         price,
         deposit,
         duration_minutes,
+        taxable,
+        is_add_on,
         active
+      ),
+      appointment_services (
+        id,
+        service_id,
+        service_name,
+        unit_price_cents,
+        quantity,
+        line_total_cents
       ),
       barber:profiles!appointments_barber_id_fkey (
         id,
@@ -563,6 +613,10 @@ export async function getActiveServices() {
         price,
         deposit,
         duration_minutes,
+        taxable,
+        category_id,
+        is_add_on,
+        display_order,
         active,
         created_at
       `)
@@ -588,15 +642,30 @@ export async function getActiveServices() {
  *
  * Barber-specific values override the agency catalog defaults.
  */
-export async function getBarberServices(
-  barberId
-) {
-  if (!barberId) {
-    return [];
-  }
+export async function getBarberServices(barberId) {
+  if (!barberId) return [];
 
-  const { data, error } =
-    await supabase
+  const [catalogResult, barberResult] = await Promise.all([
+    supabase
+      .from("services")
+      .select(`
+        id,
+        name,
+        description,
+        price,
+        deposit,
+        duration_minutes,
+        taxable,
+        category_id,
+        is_add_on,
+        display_order,
+        active
+      `)
+      .eq("active", true)
+      .order("display_order", { ascending: true })
+      .order("name", { ascending: true }),
+
+    supabase
       .from("barber_services")
       .select(`
         id,
@@ -605,70 +674,55 @@ export async function getBarberServices(
         custom_price,
         custom_deposit,
         custom_duration_minutes,
-        active,
-        service:services (
-          id,
-          name,
-          description,
-          price,
-          deposit,
-          duration_minutes,
-          active
-        )
+        active
       `)
-      .eq("barber_id", barberId)
-      .eq("active", true);
+      .eq("barber_id", barberId),
+  ]);
 
-  if (error) {
-    logSupabaseError(
-      "Unable to load barber services",
-      error
-    );
-
-    throw new Error(error.message);
+  if (catalogResult.error) {
+    logSupabaseError("Unable to load the service catalog", catalogResult.error);
+    throw new Error(catalogResult.error.message);
   }
 
-  return (data ?? [])
-    .filter(
-      (row) =>
-        row.service &&
-        row.service.active !== false
-    )
-    .map((row) => ({
-      barber_service_id: row.id,
-      barber_id: row.barber_id,
-
-      id: row.service_id,
-      service_id: row.service_id,
-
-      name:
-        row.service?.name ||
-        "Service",
-
-      description:
-        row.service?.description ||
-        "",
-
-      price:
-        row.custom_price ??
-        row.service?.price ??
-        0,
-
-      deposit:
-        row.custom_deposit ??
-        row.service?.deposit ??
-        0,
-
-      duration_minutes:
-        row.custom_duration_minutes ??
-        row.service?.duration_minutes ??
-        30,
-
-      active: row.active,
-    }))
-    .sort((a, b) =>
-      a.name.localeCompare(b.name)
+  if (barberResult.error) {
+    logSupabaseError(
+      "Unable to load barber service overrides",
+      barberResult.error
     );
+    throw new Error(barberResult.error.message);
+  }
+
+  const overrides = new Map(
+    (barberResult.data ?? []).map((row) => [row.service_id, row])
+  );
+
+  return (catalogResult.data ?? [])
+    .filter((service) => overrides.get(service.id)?.active !== false)
+    .map((service) => {
+      const override = overrides.get(service.id);
+
+      return {
+        barber_service_id: override?.id ?? null,
+        barber_id: barberId,
+        id: service.id,
+        service_id: service.id,
+        name: service.name || "Service",
+        description: service.description || "",
+        price: override?.custom_price ?? service.price ?? 0,
+        deposit: override?.custom_deposit ?? service.deposit ?? 0,
+        duration_minutes:
+          override?.custom_duration_minutes ?? service.duration_minutes ?? 30,
+        taxable: service.taxable !== false,
+        category_id: service.category_id ?? null,
+        is_add_on: service.is_add_on === true,
+        display_order: service.display_order ?? 0,
+        active: true,
+      };
+    })
+    .sort((a, b) => {
+      const order = Number(a.display_order || 0) - Number(b.display_order || 0);
+      return order || a.name.localeCompare(b.name);
+    });
 }
 
 /**
@@ -1176,17 +1230,24 @@ export async function getAvailableAppointmentSlots({
   barberId,
   serviceId,
   appointmentDate,
+  totalDurationMinutes,
 }) {
   if (!barberId || !serviceId || !appointmentDate) {
     return [];
   }
 
+  const duration = Math.max(
+    1,
+    Number.parseInt(totalDurationMinutes, 10) || 1
+  );
+
   const { data, error } = await supabase.rpc(
-    "get_available_appointment_slots",
+    "get_available_appointment_slots_for_duration",
     {
       p_barber_id: barberId,
       p_service_id: serviceId,
       p_appointment_date: appointmentDate,
+      p_total_duration_minutes: duration,
     }
   );
 
@@ -1225,4 +1286,157 @@ function logSupabaseError(
     code: error?.code,
     status: error?.status,
   });
+}
+
+
+/**
+ * Returns a server-calculated quote for one or more services.
+ * The browser never decides the authoritative tax, fee, or deposit.
+ */
+export async function getPricingQuote({
+  serviceIds,
+  quantities,
+  tipCents = 0,
+  paymentOption = "deposit",
+}) {
+  if (!Array.isArray(serviceIds) || serviceIds.length === 0) {
+    throw new Error("Select at least one service.");
+  }
+
+  const normalizedQuantities = Array.isArray(quantities)
+    ? quantities.map((value) => Math.max(1, Number.parseInt(value, 10) || 1))
+    : serviceIds.map(() => 1);
+
+  const { data, error } = await supabase.rpc("quote_selected_services", {
+    p_service_ids: serviceIds,
+    p_quantities: normalizedQuantities,
+    p_tip_cents: Math.max(0, Number.parseInt(tipCents, 10) || 0),
+    p_payment_option: paymentOption,
+  });
+
+  if (error) {
+    logSupabaseError("Unable to calculate pricing", error);
+    throw new Error(error.message);
+  }
+
+  return Array.isArray(data) ? data[0] : data;
+}
+
+/**
+ * Inserts immutable service snapshots after an appointment is created.
+ * Prices are loaded from the database instead of accepted from the browser.
+ */
+export async function addAppointmentServices(appointmentId, selectedServices) {
+  if (!appointmentId) {
+    throw new Error("An appointment ID is required.");
+  }
+
+  if (!Array.isArray(selectedServices) || selectedServices.length === 0) {
+    throw new Error("At least one service is required.");
+  }
+
+  const serviceIds = selectedServices.map((item) => item.service_id || item.id);
+  const { data: catalog, error: catalogError } = await supabase
+    .from("services")
+    .select("id,name,price,active")
+    .in("id", serviceIds)
+    .eq("active", true);
+
+  if (catalogError) {
+    logSupabaseError("Unable to load selected services", catalogError);
+    throw new Error(catalogError.message);
+  }
+
+  const byId = new Map((catalog ?? []).map((service) => [service.id, service]));
+  const rows = selectedServices.map((item) => {
+    const serviceId = item.service_id || item.id;
+    const service = byId.get(serviceId);
+
+    if (!service) {
+      throw new Error("One of the selected services is unavailable.");
+    }
+
+    return {
+      appointment_id: appointmentId,
+      service_id: service.id,
+      service_name: service.name,
+      unit_price_cents: Math.round(Number(service.price) * 100),
+      quantity: Math.max(1, Number.parseInt(item.quantity, 10) || 1),
+    };
+  });
+
+  const { data, error } = await supabase
+    .from("appointment_services")
+    .insert(rows)
+    .select("*");
+
+  if (error) {
+    logSupabaseError("Unable to save appointment services", error);
+    throw new Error(error.message);
+  }
+
+  return data ?? [];
+}
+
+/**
+ * Creates an appointment and then stores all selected service snapshots.
+ * Pass the server quote returned by getPricingQuote.
+ */
+export async function createAppointmentWithServices(
+  appointment,
+  selectedServices,
+  quote
+) {
+  const primary = selectedServices?.[0];
+
+  if (!primary) {
+    throw new Error("Select at least one service.");
+  }
+
+  if (!quote) {
+    throw new Error("A server pricing quote is required.");
+  }
+
+  let created = null;
+
+  try {
+    created = await createAppointment({
+      ...appointment,
+      service_id: primary.service_id || primary.id,
+      service: primary.name,
+      service_price: Number(quote.service_subtotal_cents) / 100,
+      deposit_amount: Number(quote.deposit_cents) / 100,
+      amount_due_now: Number(quote.charged_today_cents) / 100,
+      remaining_balance: Number(quote.remaining_balance_cents) / 100,
+      service_subtotal_cents: Number(quote.service_subtotal_cents),
+      taxable_subtotal_cents: Number(quote.taxable_subtotal_cents),
+      tax_rate: Number(quote.tax_rate),
+      tax_cents: Number(quote.tax_cents),
+      booking_fee_cents: Number(quote.booking_fee_cents),
+      tip_cents: Number(quote.tip_cents),
+      deposit_cents: Number(quote.deposit_cents),
+      charged_today_cents: Number(quote.charged_today_cents),
+      remaining_balance_cents: Number(quote.remaining_balance_cents),
+      pricing_snapshot: quote,
+    });
+
+    await addAppointmentServices(created.id, selectedServices);
+    return await getAppointmentById(created.id);
+  } catch (error) {
+    if (created?.id) {
+      const { error: cleanupError } = await supabase
+        .from("appointments")
+        .delete()
+        .eq("id", created.id);
+
+      if (cleanupError) {
+        logSupabaseError(
+          "Unable to remove incomplete appointment",
+          cleanupError
+        );
+      }
+    }
+
+    throw error;
+  }
 }
