@@ -20,6 +20,11 @@ export default function Register() {
   const navigate = useNavigate();
 
   const [fullName, setFullName] = useState("");
+  const [accountType, setAccountType] = useState("customer");
+  const [phone, setPhone] = useState("");
+  const [businessName, setBusinessName] = useState("");
+  const [experienceYears, setExperienceYears] = useState("");
+  const [bio, setBio] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] =
@@ -31,7 +36,12 @@ export default function Register() {
   const [message, setMessage] = useState("");
 
   if (isAuthenticated) {
-    return <Navigate to="/bookings" replace />;
+    return (
+      <Navigate
+        to={accountType === "barber" ? "/" : "/bookings"}
+        replace
+      />
+    );
   }
 
   const handleSubmit = async (event) => {
@@ -64,15 +74,25 @@ export default function Register() {
         email,
         password,
         fullName,
+        accountType,
+        phone,
+        businessName,
+        experienceYears,
+        bio,
       });
 
       if (data?.session) {
-        navigate("/bookings", { replace: true });
+        navigate(
+          accountType === "barber" ? "/" : "/bookings",
+          { replace: true }
+        );
         return;
       }
 
       setMessage(
-        "Account created. Check your email to confirm your account."
+        accountType === "barber"
+          ? "Application submitted. Check your email to confirm your account. An administrator must approve your barber access."
+          : "Account created. Check your email to confirm your account."
       );
     } catch (err) {
       console.error("Registration failed:", err);
@@ -121,7 +141,7 @@ export default function Register() {
         </h1>
 
         <p className="mt-2 text-sm text-ink/60">
-          Create an account to book and manage appointments.
+          Register as a customer or submit a barber application.
         </p>
 
         <form
@@ -148,6 +168,114 @@ export default function Register() {
               className="w-full rounded-xl border border-ink/15 px-4 py-3 outline-none focus:border-ink"
             />
           </div>
+
+          <div>
+            <label
+              htmlFor="register-account-type"
+              className="mb-2 block text-sm font-bold text-ink"
+            >
+              Account type
+            </label>
+
+            <select
+              id="register-account-type"
+              value={accountType}
+              onChange={(event) =>
+                setAccountType(event.target.value)
+              }
+              className="w-full rounded-xl border border-ink/15 px-4 py-3 outline-none focus:border-ink"
+            >
+              <option value="customer">Customer</option>
+              <option value="barber">Barber</option>
+            </select>
+
+            <p className="mt-2 text-xs text-ink/50">
+              Barber accounts require administrator approval.
+            </p>
+          </div>
+
+          {accountType === "barber" && (
+            <>
+              <div>
+                <label
+                  htmlFor="register-phone"
+                  className="mb-2 block text-sm font-bold text-ink"
+                >
+                  Phone
+                </label>
+
+                <input
+                  id="register-phone"
+                  type="tel"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(event) =>
+                    setPhone(event.target.value)
+                  }
+                  className="w-full rounded-xl border border-ink/15 px-4 py-3 outline-none focus:border-ink"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="register-business-name"
+                  className="mb-2 block text-sm font-bold text-ink"
+                >
+                  Business name
+                </label>
+
+                <input
+                  id="register-business-name"
+                  type="text"
+                  value={businessName}
+                  onChange={(event) =>
+                    setBusinessName(event.target.value)
+                  }
+                  className="w-full rounded-xl border border-ink/15 px-4 py-3 outline-none focus:border-ink"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="register-experience"
+                  className="mb-2 block text-sm font-bold text-ink"
+                >
+                  Years of experience
+                </label>
+
+                <input
+                  id="register-experience"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={experienceYears}
+                  onChange={(event) =>
+                    setExperienceYears(event.target.value)
+                  }
+                  className="w-full rounded-xl border border-ink/15 px-4 py-3 outline-none focus:border-ink"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="register-bio"
+                  className="mb-2 block text-sm font-bold text-ink"
+                >
+                  About your barber experience
+                </label>
+
+                <textarea
+                  id="register-bio"
+                  rows={4}
+                  value={bio}
+                  onChange={(event) =>
+                    setBio(event.target.value)
+                  }
+                  className="w-full rounded-xl border border-ink/15 px-4 py-3 outline-none focus:border-ink"
+                />
+              </div>
+            </>
+          )}
 
           <div>
             <label
@@ -243,33 +371,51 @@ export default function Register() {
               : "Sign up"}
           </button>
 
-          <div className="flex items-center gap-3">
-            <div className="h-px flex-1 bg-ink/10" />
+          {accountType === "customer" ? (
+            <>
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-ink/10" />
 
-            <span className="text-xs font-semibold uppercase tracking-wide text-ink/40">
-              or
-            </span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-ink/40">
+                  or
+                </span>
 
-            <div className="h-px flex-1 bg-ink/10" />
-          </div>
+                <div className="h-px flex-1 bg-ink/10" />
+              </div>
 
-          <button
-            type="button"
-            onClick={handleGoogleSignUp}
-            disabled={googleLoading || loading}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-ink/15 bg-white px-6 py-4 font-heading text-sm font-bold text-ink transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {googleLoading && (
-              <Loader2
-                size={17}
-                className="animate-spin"
-              />
-            )}
+              <button
+                type="button"
+                onClick={handleGoogleSignUp}
+                disabled={googleLoading || loading}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-ink/15 bg-white px-6 py-4 font-heading text-sm font-bold text-ink transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {googleLoading && (
+                  <Loader2
+                    size={17}
+                    className="animate-spin"
+                  />
+                )}
 
-            {googleLoading
-              ? "Redirecting..."
-              : "Continue with Google"}
-          </button>
+                {googleLoading
+                  ? "Redirecting..."
+                  : "Continue with Google"}
+              </button>
+
+              <p className="text-center text-xs leading-5 text-ink/50">
+                Google sign-in creates a customer account only.
+                To apply as a barber, select Barber above and
+                register with an email address and password.
+              </p>
+            </>
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+              <strong>Barber registration:</strong> Submit this
+              form with your email and password. Google sign-in
+              is disabled for barber applications because it
+              creates a customer account. Your barber access will
+              remain pending until an administrator approves it.
+            </div>
+          )}
         </form>
 
         <p className="mt-6 text-center text-sm text-ink/70">

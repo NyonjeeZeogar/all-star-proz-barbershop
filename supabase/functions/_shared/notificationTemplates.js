@@ -730,4 +730,49 @@ export const notificationTemplates = {
       actionLabel: "View Barber Profile",
       actionUrl: data.barberProfileUrl,
     }),
+
+  barber_application_approved: (data) =>
+    email({
+      subject: "Your barber application has been approved",
+      heading: "Welcome to the barber team",
+      greeting: barberGreeting(data),
+
+      intro:
+        "Your barber application has been approved. Your barber account is now active.",
+
+      details: [
+        ["Business", data.businessName],
+        ["Approved at", data.reviewedAt],
+        ["Account status", "Approved"],
+        ["Square status", data.squareStatus || "Not connected"],
+      ],
+
+      actionLabel: "Open Barber Portal",
+      actionUrl: data.barberDashboardUrl,
+
+      note:
+        "Sign in to your Barber Portal to configure your schedule, services, availability, and Square payment connection.",
+    }),
+
+  barber_application_rejected: (data) =>
+    email({
+      subject: "Update regarding your barber application",
+      heading: "Barber application update",
+      greeting: barberGreeting(data),
+
+      intro:
+        "Thank you for applying to join All Stylez Pro. Your barber application was not approved at this time.",
+
+      details: [
+        ["Application status", "Not approved"],
+        ["Reviewed at", data.reviewedAt],
+        ["Reason", data.rejectionReason || "No reason was provided"],
+      ],
+
+      actionLabel: "Contact All Stylez Pro",
+      actionUrl: data.contactUrl,
+
+      note:
+        "Please contact All Stylez Pro if you have questions about this decision.",
+    }),
 };
