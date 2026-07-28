@@ -81,3 +81,31 @@ export function isPaymentPending(status) {
 export function isPaymentFailed(status) {
   return getPaymentStatusConfig(status).isFailed;
 }
+
+
+export function normalizePaymentStatus(status) {
+  const normalized = String(status || "unpaid").trim().toLowerCase();
+  if (normalized === "payment_not_connected") return "unpaid";
+  if (normalized === "pending_payment") return "pending";
+  return normalized;
+}
+
+export function getPaymentAmounts(appointment = {}) {
+  const toCents = (value) =>
+    Math.max(0, Math.round((Number(value) || 0) * 100));
+
+  return {
+    serviceSubtotalCents:
+      appointment.service_subtotal_cents ?? toCents(appointment.service_price),
+    taxCents: appointment.tax_cents ?? 0,
+    bookingFeeCents: appointment.booking_fee_cents ?? 0,
+    tipCents: appointment.tip_cents ?? 0,
+    depositCents:
+      appointment.deposit_cents ?? toCents(appointment.deposit_amount),
+    chargedTodayCents:
+      appointment.charged_today_cents ?? toCents(appointment.amount_due_now),
+    remainingBalanceCents:
+      appointment.remaining_balance_cents ??
+      toCents(appointment.remaining_balance),
+  };
+}

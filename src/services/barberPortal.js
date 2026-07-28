@@ -130,7 +130,17 @@ export async function getPortalAppointments() {
         description,
         price,
         duration_minutes,
+        taxable,
         active
+      ),
+
+      appointment_services (
+        id,
+        service_id,
+        service_name,
+        unit_price_cents,
+        quantity,
+        line_total_cents
       )
     `)
     .order("appointment_date", { ascending: false })
@@ -278,7 +288,17 @@ export async function updatePortalAppointment(appointmentId, updates) {
         description,
         price,
         duration_minutes,
+        taxable,
         active
+      ),
+
+      appointment_services (
+        id,
+        service_id,
+        service_name,
+        unit_price_cents,
+        quantity,
+        line_total_cents
       )
     `)
     .single();

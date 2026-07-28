@@ -1,145 +1,113 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-function jsonResponse(
-  body: Record<string, unknown>,
-  status = 200,
-): Response {
+function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: {
-      ...corsHeaders,
-      "Content-Type": "application/json",
-    },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
 
 Deno.serve(async (request) => {
-  if (request.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
-
-  if (request.method !== "POST") {
-    return jsonResponse({ error: "Method not allowed." }, 405);
-  }
-
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    console.error("Missing Supabase environment variables.");
-    return jsonResponse({ error: "Server configuration error." }, 500);
-  }
-
-  const authorization = request.headers.get("Authorization");
-
-  if (!authorization) {
-    return jsonResponse({ error: "Authorization is required." }, 401);
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    global: {
-      headers: {
-        Authorization: authorization,
-      },
-    },
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    return jsonResponse({ error: "Invalid or expired session." }, 401);
-  }
-
-  let body: { booking_id?: string };
+  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (request.method !== "POST") return json({ error: "METHOD_NOT_ALLOWED" }, 405);
 
   try {
-    body = await request.json();
-  } catch {
-    return jsonResponse({ error: "Invalid JSON body." }, 400);
+    const authorization = request.headers.get("Authorization");
+    if (!authorization) return json({ error: "UNAUTHORIZED" }, 401);
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const client = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authorization } },
+    });
+
+    const { data: { user }, error: userError } = await client.auth.getUser();
+    if (userError || !user) return json({ error: "UNAUTHORIZED" }, 401);
+
+    const body = await request.json();
+    const bookingId = body.booking_id || body.bookingId;
+    if (!bookingId) return json({ error: "BOOKING_ID_REQUIRED" }, 400);
+
+    const { data, error } = await client
+      .from("appointments")
+      .select(`
+        id,
+        customer_id,
+        barber_id,
+        appointment_date,
+        start_time,
+        status,
+        payment_status,
+        service,
+        service_subtotal_cents,
+        taxable_subtotal_cents,
+        tax_rate,
+        tax_cents,
+        booking_fee_cents,
+        tip_cents,
+        deposit_cents,
+        charged_today_cents,
+        remaining_balance_cents,
+        amount_paid,
+        paid_at,
+        square_order_id,
+        square_payment_id,
+        square_receipt_url,
+        appointment_services (
+          id,
+          service_id,
+          service_name,
+          unit_price_cents,
+          quantity,
+          line_total_cents
+        ),
+        barber:profiles!appointments_barber_id_fkey (
+          id,
+          full_name
+        )
+      `)
+      .eq("id", bookingId)
+      .eq("customer_id", user.id)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return json({ error: "BOOKING_NOT_FOUND" }, 404);
+
+    return json({
+      bookingId: data.id,
+      paymentStatus: data.payment_status,
+      bookingStatus: data.status,
+      appointmentDate: data.appointment_date,
+      appointmentTime: data.start_time,
+      barberName: data.barber?.full_name ?? null,
+      services: data.appointment_services ?? [],
+      pricing: {
+        service_subtotal_cents: data.service_subtotal_cents,
+        taxable_subtotal_cents: data.taxable_subtotal_cents,
+        tax_rate: data.tax_rate,
+        tax_cents: data.tax_cents,
+        booking_fee_cents: data.booking_fee_cents,
+        tip_cents: data.tip_cents,
+        deposit_cents: data.deposit_cents,
+        charged_today_cents: data.charged_today_cents,
+        remaining_balance_cents: data.remaining_balance_cents,
+      },
+      amountPaid: data.amount_paid,
+      paidAt: data.paid_at,
+      receiptUrl: data.square_receipt_url,
+    });
+  } catch (error) {
+    console.error("booking-payment-status error", error);
+    return json({
+      error: "INTERNAL_ERROR",
+      message: error instanceof Error ? error.message : "Unexpected error",
+    }, 500);
   }
-
-  if (!body.booking_id) {
-    return jsonResponse({ error: "booking_id is required." }, 400);
-  }
-
-  const { data: appointment, error: appointmentError } = await supabase
-    .from("appointments")
-    .select(`
-      id,
-      user_id,
-      customer_id,
-      status,
-      payment_status,
-      payment_option,
-      payment_type,
-      amount_due_now,
-      amount_paid,
-      remaining_balance,
-      currency,
-      payment_currency,
-      payment_expires_at,
-      paid_at,
-      payment_verified_at,
-      payment_failed_at,
-      payment_failure_reason,
-      refunded_at,
-      refunded_amount_cents,
-      square_receipt_url
-    `)
-    .eq("id", body.booking_id)
-    .maybeSingle();
-
-  if (appointmentError) {
-    console.error("Unable to load appointment:", appointmentError);
-    return jsonResponse({ error: "Unable to load booking status." }, 500);
-  }
-
-  if (!appointment) {
-    return jsonResponse({ error: "Booking not found." }, 404);
-  }
-
-  const belongsToUser =
-    appointment.user_id === user.id ||
-    appointment.customer_id === user.id;
-
-  if (!belongsToUser) {
-    return jsonResponse({ error: "Booking not found." }, 404);
-  }
-
-  return jsonResponse({
-    booking_id: appointment.id,
-    booking_status: appointment.status,
-    payment_status: appointment.payment_status,
-    payment_option: appointment.payment_option,
-    payment_type: appointment.payment_type,
-    amount_due_now: appointment.amount_due_now,
-    amount_paid: appointment.amount_paid,
-    remaining_balance: appointment.remaining_balance,
-    currency:
-      appointment.payment_currency ??
-      appointment.currency ??
-      "USD",
-    payment_expires_at: appointment.payment_expires_at,
-    paid_at: appointment.paid_at,
-    payment_verified_at: appointment.payment_verified_at,
-    payment_failed_at: appointment.payment_failed_at,
-    payment_failure_reason: appointment.payment_failure_reason,
-    refunded_at: appointment.refunded_at,
-    refunded_amount_cents: appointment.refunded_amount_cents,
-    receipt_url: appointment.square_receipt_url,
-  });
 });

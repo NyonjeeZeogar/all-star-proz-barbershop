@@ -548,3 +548,65 @@ export default function AppointmentDetails() {
     </main>
   );
 }
+
+
+function PricingBreakdown({ appointment }) {
+  if (!appointment) return null;
+
+  const pricing = buildPricingDisplay(appointment);
+  const services = appointment.appointment_services || appointment.services || [];
+
+  return (
+    <section className="mt-4 space-y-3 rounded-2xl border border-ink/10 bg-white p-5">
+      {services.length > 0 && (
+        <div className="space-y-2">
+          {services.map((service) => (
+            <div
+              key={service.id || `${service.service_id}-${service.service_name}`}
+              className="flex justify-between gap-4 text-sm"
+            >
+              <span>
+                {service.service_name || service.name || "Service"}
+                {Number(service.quantity || 1) > 1
+                  ? ` × ${service.quantity}`
+                  : ""}
+              </span>
+              <span>{formatCents(service.line_total_cents || 0)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="border-t border-ink/10 pt-3 text-sm">
+        <MoneyRow label="Services" cents={pricing.serviceSubtotalCents} />
+        <MoneyRow label="Tax" cents={pricing.taxCents} />
+        <MoneyRow label="Booking fee" cents={pricing.bookingFeeCents} />
+        {pricing.tipCents > 0 && (
+          <MoneyRow label="Tip" cents={pricing.tipCents} />
+        )}
+        <MoneyRow
+          label="Charged today"
+          cents={pricing.chargedTodayCents}
+          strong
+        />
+        <MoneyRow
+          label="Remaining balance"
+          cents={pricing.remainingBalanceCents}
+        />
+      </div>
+    </section>
+  );
+}
+
+function MoneyRow({ label, cents, strong = false }) {
+  return (
+    <div
+      className={`flex justify-between gap-4 py-1 ${
+        strong ? "font-bold text-ink" : "text-ink/70"
+      }`}
+    >
+      <span>{label}</span>
+      <span>{formatCents(cents)}</span>
+    </div>
+  );
+}

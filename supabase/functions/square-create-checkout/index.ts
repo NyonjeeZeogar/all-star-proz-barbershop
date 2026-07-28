@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SQUARE_API_VERSION = "2025-04-16";
 const SQUARE_CONNECTIONS_TABLE = "square_connections";
@@ -11,15 +11,17 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+type PaymentType = "deposit" | "full";
+
 type CheckoutRequest = {
   booking_id?: string;
   barber_id?: string;
   barber_slug?: string;
   service_id?: string;
   service_name?: string;
-  amount?: number;
+  amount?: number; // Deprecated. Stored appointment totals are authoritative.
   currency?: string;
-  payment_type?: "deposit" | "full";
+  payment_type?: PaymentType;
   customer_name?: string;
   customer_email?: string;
   customer_phone?: string;
@@ -44,6 +46,43 @@ type SquareConnection = {
   access_token_encrypted: string | null;
 };
 
+type AppointmentRecord = {
+  id: string;
+  customer_id: string | null;
+  user_id: string | null;
+  barber_id: string;
+  service_id: string | null;
+  payment_status: string | null;
+  payment_option: PaymentType | null;
+  service_subtotal_cents: number | null;
+  deposit_cents: number | null;
+  booking_fee_cents: number | null;
+  tip_cents: number | null;
+  tax_cents: number | null;
+  charged_today_cents: number | null;
+  currency: string | null;
+  square_order_id: string | null;
+};
+
+type AppointmentServiceRecord = {
+  id: string;
+  service_id: string | null;
+  service_name: string;
+  unit_price_cents: number;
+  quantity: number;
+  line_total_cents: number;
+};
+
+type SquareLineItem = {
+  name: string;
+  quantity: string;
+  base_price_money: {
+    amount: number;
+    currency: string;
+  };
+  note?: string;
+};
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -64,17 +103,32 @@ function positiveInteger(value: unknown, field: string) {
   return Math.round(amount);
 }
 
+function nonNegativeInteger(value: unknown, fallback = 0) {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0
+    ? Math.round(amount)
+    : fallback;
+}
+
+function normalizeCurrency(value: unknown) {
+  const currency =
+    typeof value === "string" && value.trim()
+      ? value.trim().toUpperCase()
+      : "USD";
+
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    throw new Error("currency must be a valid three-letter code");
+  }
+
+  return currency;
+}
 
 /**
  * Converts an optional US phone number to E.164.
- *
- * Invalid or incomplete values return null so an optional phone number never
- * prevents checkout from continuing.
+ * Invalid values return null so an optional phone never blocks checkout.
  */
 function normalizeOptionalUsPhone(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
+  if (typeof value !== "string") return null;
 
   let digits = value.replace(/\D/g, "");
 
@@ -82,23 +136,15 @@ function normalizeOptionalUsPhone(value: unknown): string | null {
     digits = digits.slice(1);
   }
 
-  if (digits.length !== 10) {
-    return null;
-  }
-
-  return `+1${digits}`;
+  return digits.length === 10 ? `+1${digits}` : null;
 }
 
 function base64ToBytes(value: string): Uint8Array {
-  const normalized = value
-    .replace(/-/g, "+")
-    .replace(/_/g, "/");
-
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padded = normalized.padEnd(
     normalized.length + ((4 - (normalized.length % 4)) % 4),
     "=",
   );
-
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
 
@@ -109,21 +155,11 @@ function base64ToBytes(value: string): Uint8Array {
   return bytes;
 }
 
-/**
- * Decrypts the token format written by square-oauth-callback:
- *
- * - TOKEN_ENCRYPTION_KEY is Base64 text
- * - decoding it must produce exactly 32 bytes
- * - AES-GCM is used with the stored 12-byte IV
- * - ciphertext includes the AES-GCM authentication tag
- */
 async function importTokenEncryptionKey(): Promise<CryptoKey> {
   const encodedKey = Deno.env.get("TOKEN_ENCRYPTION_KEY");
 
   if (!encodedKey) {
-    throw new Error(
-      "TOKEN_ENCRYPTION_KEY is not configured.",
-    );
+    throw new Error("TOKEN_ENCRYPTION_KEY is not configured.");
   }
 
   let rawKey: Uint8Array;
@@ -131,9 +167,7 @@ async function importTokenEncryptionKey(): Promise<CryptoKey> {
   try {
     rawKey = base64ToBytes(encodedKey.trim());
   } catch {
-    throw new Error(
-      "TOKEN_ENCRYPTION_KEY must be valid Base64.",
-    );
+    throw new Error("TOKEN_ENCRYPTION_KEY must be valid Base64.");
   }
 
   if (rawKey.byteLength !== 32) {
@@ -188,10 +222,7 @@ async function decryptSquareToken(
     }
 
     const decryptedBytes = await crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv,
-      },
+      { name: "AES-GCM", iv },
       key,
       ciphertext,
     );
@@ -199,9 +230,7 @@ async function decryptSquareToken(
     const token = new TextDecoder().decode(decryptedBytes).trim();
 
     if (!token) {
-      throw new Error(
-        "The decrypted Square access token is empty.",
-      );
+      throw new Error("The decrypted Square access token is empty.");
     }
 
     return token;
@@ -209,13 +238,13 @@ async function decryptSquareToken(
     console.error("Unable to decrypt Square access token", error);
 
     throw new Error(
-      "Unable to decrypt the Square access token. Restore the original TOKEN_ENCRYPTION_KEY or reconnect Square after setting a new valid key.",
+      "Unable to decrypt the Square access token. Restore the original TOKEN_ENCRYPTION_KEY or reconnect Square.",
     );
   }
 }
 
 async function findSquareConnection(
-  supabaseAdmin: ReturnType<typeof createClient>,
+  supabaseAdmin: SupabaseClient,
   barberId: string,
   barberSlug?: string,
 ): Promise<{
@@ -234,9 +263,6 @@ async function findSquareConnection(
     "access_token_encrypted",
   ].join(", ");
 
-  /*
-   * First try the stable barber UUID.
-   */
   const {
     data: connectionById,
     error: connectionByIdError,
@@ -261,15 +287,8 @@ async function findSquareConnection(
     };
   }
 
-  /*
-   * Your existing Samuel connection currently has barber_id = null,
-   * so fall back to barber_slug.
-   */
   if (!barberSlug) {
-    return {
-      connection: null,
-      error: null,
-    };
+    return { connection: null, error: null };
   }
 
   const {
@@ -294,6 +313,190 @@ async function findSquareConnection(
       (connectionBySlug as SquareConnection | null) ?? null,
     error: null,
   };
+}
+
+/**
+ * Allocates an exact total across service rows in proportion to their stored
+ * line totals. The final row receives any rounding remainder.
+ */
+function allocateAcrossServices(
+  services: AppointmentServiceRecord[],
+  totalToAllocate: number,
+): number[] {
+  if (services.length === 0) return [];
+
+  const sourceTotal = services.reduce(
+    (sum, item) => sum + nonNegativeInteger(item.line_total_cents),
+    0,
+  );
+
+  if (sourceTotal <= 0) {
+    const allocations = services.map(() => 0);
+    allocations[allocations.length - 1] = totalToAllocate;
+    return allocations;
+  }
+
+  let allocated = 0;
+
+  return services.map((item, index) => {
+    if (index === services.length - 1) {
+      return totalToAllocate - allocated;
+    }
+
+    const value = Math.floor(
+      (nonNegativeInteger(item.line_total_cents) / sourceTotal) *
+        totalToAllocate,
+    );
+
+    allocated += value;
+    return value;
+  });
+}
+
+function buildSquareLineItems({
+  services,
+  paymentType,
+  serviceSubtotalCents,
+  depositCents,
+  bookingFeeCents,
+  tipCents,
+  taxCents,
+  chargedTodayCents,
+  currency,
+}: {
+  services: AppointmentServiceRecord[];
+  paymentType: PaymentType;
+  serviceSubtotalCents: number;
+  depositCents: number;
+  bookingFeeCents: number;
+  tipCents: number;
+  taxCents: number;
+  chargedTodayCents: number;
+  currency: string;
+}): SquareLineItem[] {
+  const lineItems: SquareLineItem[] = [];
+
+  if (paymentType === "full") {
+    for (const service of services) {
+      const lineTotal = nonNegativeInteger(service.line_total_cents);
+
+      if (lineTotal <= 0) continue;
+
+      lineItems.push({
+        name: service.service_name,
+        quantity: "1",
+        base_price_money: {
+          amount: lineTotal,
+          currency,
+        },
+        note:
+          service.quantity > 1
+            ? `${service.quantity} × ${service.unit_price_cents} cents`
+            : undefined,
+      });
+    }
+  } else {
+    const allocations = allocateAcrossServices(services, depositCents);
+
+    services.forEach((service, index) => {
+      const amount = allocations[index] ?? 0;
+
+      if (amount <= 0) return;
+
+      lineItems.push({
+        name: `${service.service_name} deposit`,
+        quantity: "1",
+        base_price_money: {
+          amount,
+          currency,
+        },
+        note:
+          service.quantity > 1
+            ? `50% deposit for quantity ${service.quantity}`
+            : "50% service deposit",
+      });
+    });
+  }
+
+  if (bookingFeeCents > 0) {
+    lineItems.push({
+      name: "Booking fee",
+      quantity: "1",
+      base_price_money: {
+        amount: bookingFeeCents,
+        currency,
+      },
+    });
+  }
+
+  if (tipCents > 0) {
+    lineItems.push({
+      name: "Tip",
+      quantity: "1",
+      base_price_money: {
+        amount: tipCents,
+        currency,
+      },
+    });
+  }
+
+  if (taxCents > 0) {
+    lineItems.push({
+      name: "Tax",
+      quantity: "1",
+      base_price_money: {
+        amount: taxCents,
+        currency,
+      },
+    });
+  }
+
+  const currentTotal = lineItems.reduce(
+    (sum, item) => sum + item.base_price_money.amount,
+    0,
+  );
+
+  const difference = chargedTodayCents - currentTotal;
+
+  if (difference !== 0) {
+    lineItems.push({
+      name: difference > 0 ? "Pricing adjustment" : "Pricing discount",
+      quantity: "1",
+      base_price_money: {
+        amount: Math.abs(difference),
+        currency,
+      },
+      note:
+        difference > 0
+          ? "Reconciles checkout to the authoritative appointment total."
+          : "A negative reconciliation cannot be represented as a positive Square item.",
+    });
+  }
+
+  const finalTotal = lineItems.reduce(
+    (sum, item) => sum + item.base_price_money.amount,
+    0,
+  );
+
+  if (difference < 0 || finalTotal !== chargedTodayCents) {
+    // Fall back to one exact item rather than risking a mismatched Square order.
+    return [
+      {
+        name:
+          paymentType === "deposit"
+            ? "Appointment deposit and fees"
+            : "Appointment services and fees",
+        quantity: "1",
+        base_price_money: {
+          amount: chargedTodayCents,
+          currency,
+        },
+        note: `${services.length} selected service line(s); service subtotal ${serviceSubtotalCents} cents.`,
+      },
+    ];
+  }
+
+  return lineItems;
 }
 
 Deno.serve(async (req) => {
@@ -321,10 +524,6 @@ Deno.serve(async (req) => {
     );
 
     if (!supabaseUrl || !serviceRoleKey) {
-      console.error(
-        "Missing Supabase server environment variables",
-      );
-
       return json(
         {
           error: "SERVER_CONFIGURATION_ERROR",
@@ -367,10 +566,7 @@ Deno.serve(async (req) => {
     } = await supabaseAdmin.auth.getUser(jwt);
 
     if (userError || !user) {
-      console.error(
-        "Unable to verify checkout user",
-        userError,
-      );
+      console.error("Unable to verify checkout user", userError);
 
       return json(
         {
@@ -416,16 +612,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (!body.service_name) {
-      return json(
-        {
-          error: "SERVICE_NAME_REQUIRED",
-          message: "service_name is required.",
-        },
-        400,
-      );
-    }
-
     if (
       !["deposit", "full"].includes(
         body.payment_type || "",
@@ -441,16 +627,12 @@ Deno.serve(async (req) => {
       );
     }
 
-    const amount = positiveInteger(body.amount, "amount");
-    const currency = (
-      body.currency || "USD"
-    ).toUpperCase();
-
     /*
-     * Verify that the appointment belongs to the signed-in user.
+     * Load the appointment before reading any amount fields.
+     * customer_id OR user_id is accepted for older appointment rows.
      */
     const {
-      data: appointment,
+      data: appointmentData,
       error: appointmentError,
     } = await supabaseAdmin
       .from("appointments")
@@ -458,21 +640,26 @@ Deno.serve(async (req) => {
         [
           "id",
           "customer_id",
+          "user_id",
           "barber_id",
           "service_id",
           "payment_status",
-          "amount_due_now",
+          "payment_option",
+          "service_subtotal_cents",
+          "deposit_cents",
+          "booking_fee_cents",
+          "tip_cents",
+          "tax_cents",
+          "charged_today_cents",
+          "currency",
+          "square_order_id",
         ].join(", "),
       )
       .eq("id", body.booking_id)
-      .eq("customer_id", user.id)
       .maybeSingle();
 
     if (appointmentError) {
-      console.error(
-        "Appointment lookup failed",
-        appointmentError,
-      );
+      console.error("Appointment lookup failed", appointmentError);
 
       return json(
         {
@@ -483,7 +670,16 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (!appointment) {
+    const appointment =
+      appointmentData as AppointmentRecord | null;
+
+    if (
+      !appointment ||
+      (
+        appointment.customer_id !== user.id &&
+        appointment.user_id !== user.id
+      )
+    ) {
       return json(
         {
           error: "APPOINTMENT_NOT_FOUND",
@@ -509,8 +705,109 @@ Deno.serve(async (req) => {
       return json(
         {
           error: "APPOINTMENT_ALREADY_PAID",
+          message: "This appointment has already been paid.",
+        },
+        409,
+      );
+    }
+
+    const paymentType = body.payment_type as PaymentType;
+
+    if (
+      appointment.payment_option &&
+      appointment.payment_option !== paymentType
+    ) {
+      return json(
+        {
+          error: "PAYMENT_TYPE_MISMATCH",
           message:
-            "This appointment has already been paid.",
+            "The payment type does not match the stored appointment.",
+        },
+        409,
+      );
+    }
+
+    const chargedTodayCents = positiveInteger(
+      appointment.charged_today_cents,
+      "appointment.charged_today_cents",
+    );
+
+    const currency = normalizeCurrency(
+      appointment.currency || body.currency || "USD",
+    );
+
+    const {
+      data: serviceRows,
+      error: servicesError,
+    } = await supabaseAdmin
+      .from("appointment_services")
+      .select(
+        [
+          "id",
+          "service_id",
+          "service_name",
+          "unit_price_cents",
+          "quantity",
+          "line_total_cents",
+        ].join(", "),
+      )
+      .eq("appointment_id", appointment.id)
+      .order("created_at", { ascending: true });
+
+    if (servicesError) {
+      console.error(
+        "Appointment service lookup failed",
+        servicesError,
+      );
+
+      return json(
+        {
+          error: "APPOINTMENT_SERVICES_LOOKUP_FAILED",
+          message: servicesError.message,
+        },
+        500,
+      );
+    }
+
+    const appointmentServices =
+      (serviceRows ?? []) as AppointmentServiceRecord[];
+
+    if (appointmentServices.length === 0) {
+      return json(
+        {
+          error: "APPOINTMENT_SERVICES_MISSING",
+          message:
+            "No service snapshots were found for this appointment.",
+        },
+        409,
+      );
+    }
+
+    const storedSubtotal = nonNegativeInteger(
+      appointment.service_subtotal_cents,
+    );
+
+    const snapshotSubtotal = appointmentServices.reduce(
+      (sum, item) =>
+        sum + nonNegativeInteger(item.line_total_cents),
+      0,
+    );
+
+    if (
+      storedSubtotal > 0 &&
+      snapshotSubtotal !== storedSubtotal
+    ) {
+      console.error("Appointment subtotal mismatch", {
+        appointmentId: appointment.id,
+        storedSubtotal,
+        snapshotSubtotal,
+      });
+
+      return json(
+        {
+          error: "APPOINTMENT_PRICING_MISMATCH",
+          message:
+            "The stored service lines do not match the appointment subtotal.",
         },
         409,
       );
@@ -582,7 +879,7 @@ Deno.serve(async (req) => {
         {
           error: "SQUARE_TOKEN_EXPIRED",
           message:
-            "The connected Square authorization has expired. The barber must reconnect Square.",
+            "The connected Square authorization has expired. Reconnect Square.",
         },
         401,
       );
@@ -598,9 +895,7 @@ Deno.serve(async (req) => {
 
     const fallbackRedirectUrl = siteUrl
       ? new URL(
-        `${
-          siteUrl.replace(/\/$/, "")
-        }/booking-confirmation`,
+        `${siteUrl.replace(/\/$/, "")}/booking-confirmation`,
       )
       : null;
 
@@ -611,22 +906,16 @@ Deno.serve(async (req) => {
       );
     }
 
-    const redirectUrl =
+    let verifiedRedirectUrl =
       body.redirect_url ||
       fallbackRedirectUrl?.toString();
 
-    let verifiedRedirectUrl = redirectUrl;
-
     if (verifiedRedirectUrl) {
       try {
-        const parsedRedirectUrl = new URL(
-          verifiedRedirectUrl,
-        );
+        const parsedRedirectUrl = new URL(verifiedRedirectUrl);
 
         if (
-          !parsedRedirectUrl.searchParams.has(
-            "booking_id",
-          )
+          !parsedRedirectUrl.searchParams.has("booking_id")
         ) {
           parsedRedirectUrl.searchParams.set(
             "booking_id",
@@ -634,8 +923,7 @@ Deno.serve(async (req) => {
           );
         }
 
-        verifiedRedirectUrl =
-          parsedRedirectUrl.toString();
+        verifiedRedirectUrl = parsedRedirectUrl.toString();
       } catch {
         return json(
           {
@@ -649,37 +937,75 @@ Deno.serve(async (req) => {
     }
 
     const production =
-      Deno.env.get("SQUARE_ENVIRONMENT") ===
-        "production";
+      Deno.env.get("SQUARE_ENVIRONMENT") === "production";
 
     const squareBaseUrl = production
       ? "https://connect.squareup.com"
       : "https://connect.squareupsandbox.com";
 
+    const lineItems = buildSquareLineItems({
+      services: appointmentServices,
+      paymentType,
+      serviceSubtotalCents: storedSubtotal || snapshotSubtotal,
+      depositCents: nonNegativeInteger(
+        appointment.deposit_cents,
+      ),
+      bookingFeeCents: nonNegativeInteger(
+        appointment.booking_fee_cents,
+      ),
+      tipCents: nonNegativeInteger(
+        appointment.tip_cents,
+      ),
+      taxCents: nonNegativeInteger(
+        appointment.tax_cents,
+      ),
+      chargedTodayCents,
+      currency,
+    });
+
+    const lineItemTotal = lineItems.reduce(
+      (sum, item) =>
+        sum + item.base_price_money.amount *
+          Number.parseInt(item.quantity, 10),
+      0,
+    );
+
+    if (lineItemTotal !== chargedTodayCents) {
+      console.error("Square line item total mismatch", {
+        appointmentId: appointment.id,
+        lineItemTotal,
+        chargedTodayCents,
+      });
+
+      return json(
+        {
+          error: "CHECKOUT_TOTAL_MISMATCH",
+          message:
+            "Unable to reconcile Square line items with the amount due today.",
+        },
+        500,
+      );
+    }
+
     const idempotencyKey =
-      `appointment-${body.booking_id}-${body.payment_type}`;
+      `appointment-${body.booking_id}-${paymentType}-${chargedTodayCents}`;
 
     const squarePayload: Record<string, unknown> = {
       idempotency_key: idempotencyKey,
-      quick_pay: {
-        name: `${body.service_name} (${
-          body.payment_type === "deposit"
-            ? "Deposit"
-            : "Full payment"
-        })`,
-        price_money: {
-          amount,
-          currency,
-        },
+      order: {
         location_id: connection.location_id,
+        reference_id: appointment.id,
+        line_items: lineItems,
       },
     };
 
     const prePopulatedData: Record<string, string> = {};
 
-    if (body.customer_email) {
-      prePopulatedData.buyer_email =
-        body.customer_email;
+    const customerEmail =
+      body.customer_email?.trim();
+
+    if (customerEmail) {
+      prePopulatedData.buyer_email = customerEmail;
     }
 
     const normalizedCustomerPhone =
@@ -691,8 +1017,7 @@ Deno.serve(async (req) => {
     }
 
     if (Object.keys(prePopulatedData).length > 0) {
-      squarePayload.pre_populated_data =
-        prePopulatedData;
+      squarePayload.pre_populated_data = prePopulatedData;
     }
 
     if (verifiedRedirectUrl) {
@@ -715,49 +1040,50 @@ Deno.serve(async (req) => {
       },
     );
 
+    const rawSquareBody = await squareResponse.text();
     let squareResult: Record<string, any>;
 
     try {
-      squareResult = await squareResponse.json();
+      squareResult = rawSquareBody
+        ? JSON.parse(rawSquareBody)
+        : {};
     } catch {
       squareResult = {
-        error:
-          "Square returned a non-JSON response.",
+        raw_response: rawSquareBody,
       };
     }
 
     if (!squareResponse.ok) {
-      console.error(
-        "Square CreatePaymentLink failed",
-        {
-          status: squareResponse.status,
-          result: squareResult,
-          environment: production
-            ? "production"
-            : "sandbox",
-          locationId: connection.location_id,
-        },
-      );
+      console.error("Square CreatePaymentLink failed", {
+        status: squareResponse.status,
+        result: squareResult,
+        environment: production ? "production" : "sandbox",
+        locationId: connection.location_id,
+        appointmentId: appointment.id,
+        chargedTodayCents,
+      });
 
       return json(
         {
           error: "SQUARE_CHECKOUT_FAILED",
           message:
+            squareResult?.errors?.[0]?.detail ||
             "Square could not create the checkout link.",
           details:
             squareResult?.errors ?? squareResult,
         },
-        squareResponse.status,
+        squareResponse.status >= 400 &&
+            squareResponse.status < 600
+          ? squareResponse.status
+          : 502,
       );
     }
 
-    const paymentLink =
-      squareResult?.payment_link;
+    const paymentLink = squareResult?.payment_link;
 
     const squareOrderId =
       paymentLink?.order_id ||
-      squareResult?.related_resources
-        ?.orders?.[0]?.id ||
+      squareResult?.related_resources?.orders?.[0]?.id ||
       null;
 
     if (!paymentLink?.url) {
@@ -776,18 +1102,14 @@ Deno.serve(async (req) => {
       );
     }
 
-    const {
-      error: updateError,
-    } = await supabaseAdmin
+    const { error: updateError } = await supabaseAdmin
       .from("appointments")
       .update({
         payment_status: "pending",
         square_order_id: squareOrderId,
-        square_location_id:
-          connection.location_id,
+        square_location_id: connection.location_id,
       })
-      .eq("id", body.booking_id)
-      .eq("customer_id", user.id);
+      .eq("id", appointment.id);
 
     if (updateError) {
       console.error(
@@ -801,6 +1123,7 @@ Deno.serve(async (req) => {
           message:
             "Square checkout was created, but the appointment could not be linked to it.",
           details: updateError.message,
+          checkout_url: paymentLink.url,
         },
         500,
       );
@@ -809,14 +1132,15 @@ Deno.serve(async (req) => {
     return json({
       checkout_url: paymentLink.url,
       url: paymentLink.url,
-      payment_link_id:
-        paymentLink.id ?? null,
+      payment_link_id: paymentLink.id ?? null,
       square_order_id: squareOrderId,
       merchant_id: connection.merchant_id,
       location_id: connection.location_id,
-      environment: production
-        ? "production"
-        : "sandbox",
+      amount_cents: chargedTodayCents,
+      currency,
+      payment_type: paymentType,
+      service_lines: appointmentServices.length,
+      environment: production ? "production" : "sandbox",
     });
   } catch (error) {
     console.error(
