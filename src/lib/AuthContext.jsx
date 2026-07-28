@@ -228,19 +228,25 @@ export function AuthProvider({ children }) {
   };
 
   /**
-   * Create a customer account.
+   * Create a customer account or submit a barber application.
    *
-   * Barber accounts should continue to be created/managed
-   * manually for now.
-   *
-   * Do not allow users to assign themselves the "barber"
-   * or "admin" role from the signup form.
+   * The requested account type is stored only in Auth metadata.
+   * Database triggers create pending barber applications, while
+   * every new profile keeps the safe default customer role until
+   * an administrator approves it.
    */
   const signUp = async ({
     email,
     password,
     fullName,
+    accountType = "customer",
+    phone = "",
+    businessName = "",
+    experienceYears = "",
+    bio = "",
   }) => {
+    const normalizedAccountType =
+      accountType === "barber" ? "barber" : "customer";
     const { data, error } =
       await supabase.auth.signUp({
         email: email.trim(),
@@ -248,6 +254,15 @@ export function AuthProvider({ children }) {
         options: {
           data: {
             full_name: fullName.trim(),
+            account_type: normalizedAccountType,
+            phone: phone.trim(),
+            business_name: businessName.trim(),
+            experience_years:
+              normalizedAccountType === "barber" &&
+              experienceYears !== ""
+                ? String(experienceYears)
+                : "",
+            bio: bio.trim(),
           },
         },
       });

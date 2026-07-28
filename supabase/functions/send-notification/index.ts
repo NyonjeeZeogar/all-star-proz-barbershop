@@ -10,6 +10,11 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+const BARBER_APPLICATION_TYPES = new Set([
+  "barber_application_approved",
+  "barber_application_rejected",
+]);
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -40,22 +45,29 @@ Deno.serve(async (request) => {
     );
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
+  const adminClient = createClient(
+    supabaseUrl,
+    serviceRoleKey,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
     },
-  });
+  );
 
   let notificationLogId: string | null = null;
 
   try {
+    const body = await request.json();
+
     const {
       type,
       appointmentId = null,
-      recipient,
-      data = {},
-    } = await request.json();
+      applicationId = null,
+      recipient: requestedRecipient,
+      data: requestedData = {},
+    } = body;
 
     const templateFactory = notificationTemplates[type];
 
@@ -68,6 +80,100 @@ Deno.serve(async (request) => {
         400,
         corsHeaders,
       );
+    }
+
+    let recipient = requestedRecipient;
+    let data = requestedData;
+
+    if (BARBER_APPLICATION_TYPES.has(type)) {
+      const adminUser = await requireAdmin(
+        request,
+        supabaseUrl,
+        serviceRoleKey,
+        adminClient,
+      );
+
+      if (!applicationId) {
+        return jsonResponse(
+          {
+            success: false,
+            error: "applicationId is required.",
+          },
+          400,
+          corsHeaders,
+        );
+      }
+
+      const {
+        data: application,
+        error: applicationError,
+      } = await adminClient
+        .from("barber_applications")
+        .select(
+          `
+            id,
+            user_id,
+            full_name,
+            email,
+            business_name,
+            status,
+            rejection_reason,
+            reviewed_at
+          `,
+        )
+        .eq("id", applicationId)
+        .single();
+
+      if (applicationError || !application) {
+        throw new Error(
+          applicationError?.message ||
+            "Barber application not found.",
+        );
+      }
+
+      const requiredStatus =
+        type === "barber_application_approved"
+          ? "approved"
+          : "rejected";
+
+      if (application.status !== requiredStatus) {
+        return jsonResponse(
+          {
+            success: false,
+            error:
+              `The application must be ${requiredStatus} before this email can be sent.`,
+          },
+          409,
+          corsHeaders,
+        );
+      }
+
+      let squareStatus: string | undefined;
+
+      if (type === "barber_application_approved") {
+        const { data: squareConnection } = await adminClient
+          .from("square_connections")
+          .select("status")
+          .eq("barber_id", application.user_id)
+          .maybeSingle();
+
+        squareStatus =
+          squareConnection?.status === "connected"
+            ? "Connected"
+            : "Not connected";
+      }
+
+      recipient = application.email;
+      data = {
+        barberName: application.full_name,
+        businessName: application.business_name,
+        reviewedAt: formatDateTime(application.reviewed_at),
+        rejectionReason: application.rejection_reason,
+        squareStatus,
+        barberDashboardUrl: buildUrl("/portal"),
+        contactUrl: buildUrl("/contact"),
+        reviewedBy: adminUser.email,
+      };
     }
 
     if (!recipient || typeof recipient !== "string") {
@@ -117,6 +223,9 @@ Deno.serve(async (request) => {
 
       rebookUrl:
         data.rebookUrl || buildUrl("/bookings"),
+
+      contactUrl:
+        data.contactUrl || buildUrl("/contact"),
     };
 
     const template = templateFactory(enrichedData);
@@ -136,7 +245,7 @@ Deno.serve(async (request) => {
     const {
       data: logRow,
       error: logInsertError,
-    } = await supabase
+    } = await adminClient
       .from("notification_logs")
       .insert(logPayload)
       .select("id")
@@ -157,7 +266,7 @@ Deno.serve(async (request) => {
       text: template.text,
     });
 
-    const { error: logUpdateError } = await supabase
+    const { error: logUpdateError } = await adminClient
       .from("notification_logs")
       .update({
         status: "sent",
@@ -191,7 +300,7 @@ Deno.serve(async (request) => {
     console.error("send-notification error:", message);
 
     if (notificationLogId) {
-      const { error: failedLogUpdateError } = await supabase
+      const { error: failedLogUpdateError } = await adminClient
         .from("notification_logs")
         .update({
           status: "failed",
@@ -218,6 +327,64 @@ Deno.serve(async (request) => {
   }
 });
 
+async function requireAdmin(
+  request: Request,
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  adminClient: ReturnType<typeof createClient>,
+) {
+  const authorization = request.headers.get("Authorization");
+
+  if (!authorization?.startsWith("Bearer ")) {
+    throw new Error("Authentication is required.");
+  }
+
+  const userClient = createClient(
+    supabaseUrl,
+    serviceRoleKey,
+    {
+      global: {
+        headers: {
+          Authorization: authorization,
+        },
+      },
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    },
+  );
+
+  const {
+    data: { user },
+    error: userError,
+  } = await userClient.auth.getUser(
+    authorization.replace("Bearer ", ""),
+  );
+
+  if (userError || !user) {
+    throw new Error("The authenticated user could not be verified.");
+  }
+
+  const { data: profile, error: profileError } =
+    await adminClient
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+  if (
+    profileError ||
+    String(profile?.role ?? "").trim().toLowerCase() !== "admin"
+  ) {
+    throw new Error(
+      "Only administrators can send barber application emails.",
+    );
+  }
+
+  return user;
+}
+
 function buildUrl(path: string): string | undefined {
   const appUrl = Deno.env.get("APP_URL");
 
@@ -226,4 +393,15 @@ function buildUrl(path: string): string | undefined {
   }
 
   return `${appUrl.replace(/\/+$/, "")}${path}`;
+}
+
+function formatDateTime(value: string | null): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
