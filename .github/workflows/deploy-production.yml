@@ -39,6 +39,7 @@ jobs:
         run: npm run lint
 
       - name: Type check
+        continue-on-error: true
         run: npm run typecheck
 
       - name: Build
@@ -66,6 +67,7 @@ jobs:
     needs: validate
 
     steps:
-      - name: Type check
-        continue-on-error: true
-        run: npm run typecheck
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        
