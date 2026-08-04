@@ -5,7 +5,8 @@ import path from "path";
 export default defineConfig({
   plugins: [react()],
 
-  base: "/all-star-proz-barbershop/",
+  // GitHub Pages custom domain is served from the domain root.
+  base: "/",
 
   resolve: {
     alias: {
@@ -16,5 +17,10 @@ export default defineConfig({
   server: {
     host: "localhost",
     port: 5173,
+  },
+
+  preview: {
+    host: "localhost",
+    port: 4173,
   },
 });

@@ -1,6 +1,6 @@
 import React from "react";
 import { ArrowRight, MapPin, Scissors } from "lucide-react";
-import { SHOP, TEAM } from "@/lib/assets";
+import { TEAM } from "@/lib/assets";
 import SectionHeading from "@/components/site/SectionHeading";
 import ContactInfo from "@/components/site/ContactInfo";
 import OpeningHours from "@/components/site/OpeningHours";
