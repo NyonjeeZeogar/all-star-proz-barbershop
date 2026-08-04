@@ -34,9 +34,7 @@ import { formatTime } from "@/lib/dateTime";
 import {
   dollarsToCents,
   formatCents,
-  getBookingFeeCents,
   getDepositPreviewCents,
-  getServiceDepositCents,
 } from "@/lib/pricing";
 import SectionHeading from "@/components/site/SectionHeading";
 import {

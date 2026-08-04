@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { MapPin, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { SHOP } from "@/lib/assets";
 import SectionHeading from "@/components/site/SectionHeading";
 import OpeningHours from "@/components/site/OpeningHours";
